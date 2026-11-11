@@ -1,6 +1,6 @@
 import * as THREE from "three";
 import "./style.css";
-import { RADIUS, LENGTH } from "./habitat.js";
+import { RADIUS, LENGTH, GRAVITY } from "./habitat.js";
 import { createWorld } from "./world.js";
 import { createPlayer } from "./player.js";
 import {
@@ -13,6 +13,7 @@ import { CITY_NAME, CITY_ARRIVAL, CITY_STOPS, inCity } from "./city-layout.js";
 import { getCityLift } from "./city-transit.js";
 import { CARETAKER } from "./maintenance-layout.js";
 import { createSaveStore } from "./save-game.js";
+import { SERVICE_STOPS, SERVICE_NAME, inServiceLevel } from "./service-layout.js";
 
 const $ = (id) => document.getElementById(id);
 const startButton = $("start");
@@ -52,10 +53,13 @@ try {
   scene.add(camera);
   const saveStore = createSaveStore();
   const saved = saveStore.load(
-    [...DISTRICT_STOPS, ...CITY_STOPS].map((stop) => stop.id),
+    [...DISTRICT_STOPS, ...CITY_STOPS, ...SERVICE_STOPS].map((stop) => stop.id),
   );
   const world = createWorld(scene, camera, saved);
   const { delivery, maintenance } = world;
+  // Cargo remains visible under either lighting set; other world meshes do not.
+  for (const child of camera.children)
+    child.traverse((node) => node.layers.enable(1));
   const soundscape = createSoundscape({ muted: saved.muted });
   let playing = false;
   let everLocked = false;
@@ -189,6 +193,7 @@ try {
 
   player = createPlayer(camera, renderer.domElement, {
     obstacles: world.obstacles,
+    groundHeight: world.groundHeight,
     onLockChange(locked) {
       if (locked && !playing) {
         document.exitPointerLock();
@@ -222,6 +227,7 @@ try {
     $("mission").hidden = false;
     $("maintenance").hidden = false;
     $("telemetry").hidden = false;
+    $("compact-physics").hidden = false;
     $("job").hidden = false;
     $("job-scroll-hint").hidden = false;
     updateHUD();
@@ -267,16 +273,23 @@ try {
         : state.speed > 0.2
           ? "WALKING"
           : "ON FOOT";
-    $("height").textContent = `${state.height.toFixed(1)} m UP`;
+    const heightLabel =
+      `${Math.abs(state.height).toFixed(1)} m ${state.height < -0.05 ? "DOWN" : "UP"}`;
+    const gravityLabel = `${(state.gravity / GRAVITY).toFixed(3)} G`;
+    $("height").textContent = heightLabel;
+    $("gravity").textContent = gravityLabel;
+    $("compact-physics").textContent = `${gravityLabel} · ${heightLabel}`;
     $("track-position").style.left =
       `${THREE.MathUtils.clamp(((state.y + LENGTH / 2) / LENGTH) * 100, 0, 100)}%`;
     const arc =
       Math.atan2(Math.sin(state.theta), Math.cos(state.theta)) * RADIUS;
-    $("area").textContent = inCity(arc, state.y)
-      ? CITY_NAME.toUpperCase()
-      : inDistrict(arc, state.y)
-        ? DISTRICT_NAME.toUpperCase()
-        : "OUTER PROMENADE";
+    $("area").textContent = inServiceLevel(arc, state.y, state.height)
+      ? SERVICE_NAME.toUpperCase()
+      : inCity(arc, state.y)
+        ? CITY_NAME.toUpperCase()
+        : inDistrict(arc, state.y)
+          ? DISTRICT_NAME.toUpperCase()
+          : "OUTER PROMENADE";
     let nearest = null;
     let nearestDistance = Infinity;
     let discovered = false;
@@ -306,7 +319,10 @@ try {
         ? "VISITED"
         : planarDistance < landmark.radius && state.height < landmark.minHeight
           ? "UPSTAIRS"
-          : `${Math.round(distance)} m`;
+          : planarDistance < landmark.radius &&
+              state.height > (landmark.maxHeight ?? Infinity)
+            ? "BELOW"
+            : `${Math.round(distance)} m`;
       if (!found.has(landmark.id) && distance < nearestDistance) {
         nearest = landmark;
         nearestDistance = distance;
@@ -320,7 +336,7 @@ try {
     else {
       $("mission").querySelector("h2").textContent = "A place to call home.";
       $("objective").textContent =
-        "Habitat walk complete. Explore the skywalk, fields, and side streets.";
+        "Habitat walk complete. Explore the utility rooms, skywalk, fields, and side streets.";
     }
     const job = delivery.getView(state);
     $("job").dataset.phase = job.phase;
@@ -532,7 +548,9 @@ try {
       if (currentLift && elapsed >= travelEnd) currentLift = null;
     }
     player.update(currentLift ? 0 : dt);
-    if (playing) soundscape.update(dt, player.getState(playerState));
+    player.getState(playerState);
+    if (playing) soundscape.update(dt, playerState);
+    camera.layers.set(playerState.height < -1 ? 1 : 0);
     hudTime += dt;
     if (hudTime >= 0.1) {
       updateHUD();

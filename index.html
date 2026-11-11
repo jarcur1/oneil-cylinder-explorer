@@ -13,12 +13,12 @@
       <header class="topbar">
         <div class="brand">
           <span class="brand-mark">◌</span>
-          <div>NEW DAWN<span class="eyebrow">CYLINDER EXPLORER / 03</span></div>
+          <div>NEW DAWN<span class="eyebrow">CYLINDER EXPLORER / 04</span></div>
         </div>
         <div class="status">
           <span class="status-dot"></span>
           <span id="area">MERIDIAN APPROACH</span>
-          <span class="divider">/</span> <span id="gravity">1.00 G</span>
+          <span class="divider">/</span> <span id="gravity">1.000 G</span>
         </div>
         <div class="top-controls">
           <button
@@ -36,11 +36,11 @@
       <section id="intro" class="overlay" aria-labelledby="intro-title">
         <div class="intro-card">
           <p class="eyebrow accent">MERIDIAN CIVIC DISTRICT</p>
-          <h1 id="intro-title">A city.<br />Under another world.</h1>
+          <h1 id="intro-title">A city.<br />And what keeps it alive.</h1>
           <p class="intro-copy">
-            Meet Meridian's residents and its caretaker, Mara Voss. Help restart
-            the Skywalk ventilation unit, then explore the city and Greenway's
-            farms.
+            Enter the service lift southwest of Meridian plaza. Eight metres
+            below the living surface, follow the water pipes and power lines
+            through the city's working infrastructure.
           </p>
           <button id="start" class="primary-button">
             Enter Meridian <span>↗</span>
@@ -66,8 +66,8 @@
         <div class="intro-aside">
           <span class="eyebrow">TWO NEIGHBORHOODS / ONE WORLD</span>
           <strong>MERIDIAN + GREENWAY</strong>
-          <span>City · Skyroom · Farms</span>
-          <span>360 m cylinder / simulated gravity</span>
+          <span>City · Service Level · Farms</span>
+          <span>360 m cylinder / radius-dependent gravity</span>
         </div>
       </section>
       <section
@@ -100,11 +100,12 @@
         </div>
       </section>
       <div id="crosshair" aria-hidden="true" hidden>+</div>
+      <div id="compact-physics" class="compact-physics" hidden></div>
       <div class="hud-cards">
         <aside id="mission" class="hud-panel" hidden>
-          <p class="eyebrow">HABITAT WALK <span id="progress">0 / 6</span></p>
-          <h2>Two neighborhoods.</h2>
-          <p class="mission-copy">Discover the city and the farm edge.</p>
+          <p class="eyebrow">HABITAT WALK <span id="progress">0 / 8</span></p>
+          <h2>Above and below.</h2>
+          <p class="mission-copy">Discover the city, its service deck, and the farm edge.</p>
           <ol id="landmarks"></ol>
           <p id="objective" class="objective">
             Follow the promenade into Meridian plaza.
@@ -160,7 +161,7 @@
       <aside id="telemetry" class="telemetry" hidden>
         <span class="eyebrow"
           >LOCAL POSITION
-          <span id="height" class="float-right" title="Height above the hull"
+          <span id="height" class="float-right" title="Height relative to the living surface"
             >0.0 m UP</span
           ></span
         >

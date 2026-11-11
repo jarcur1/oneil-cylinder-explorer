@@ -101,6 +101,9 @@ canvas {
   margin: 0 14px;
   opacity: 0.4;
 }
+.compact-physics {
+  display: none;
+}
 .glass-button {
   border: 1px solid #ffffff30;
   background: #14283080;
@@ -584,6 +587,19 @@ footer {
   }
   .status {
     display: none;
+  }
+  .compact-physics {
+    display: block;
+    position: absolute;
+    right: 20px;
+    top: 69px;
+    color: #d5f58e;
+    background: #10232bcc;
+    padding: 4px 8px;
+    border-radius: 3px;
+    font-size: 9px;
+    letter-spacing: 0.08em;
+    pointer-events: none;
   }
   .glass-button {
     margin-left: auto;

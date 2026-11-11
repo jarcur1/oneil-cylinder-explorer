@@ -11,6 +11,8 @@ import { createCityStreets } from "./city-streets.js";
 import { createCityTower } from "./city-tower.js";
 import { CITY_STOPS, inCity } from "./city-layout.js";
 import { createMaintenance } from "./maintenance.js";
+import { createServiceLevel } from "./service-level.js";
+import { SERVICE_FLOOR, SERVICE_STOPS } from "./service-layout.js";
 
 // Deterministic PRNG (Mulberry32)
 function createRng(seed = 0x5a17e) {
@@ -823,6 +825,7 @@ export function createWorld(scene, camera, saved = {}) {
   const cityStreets = createCityStreets(districtGroup);
   const cityTower = createCityTower(districtGroup);
   const maintenance = createMaintenance(districtGroup, saved.maintenancePhase);
+  const service = createServiceLevel(districtGroup);
   obstacles.push(
     ...village.obstacles,
     ...farm.obstacles,
@@ -830,6 +833,17 @@ export function createWorld(scene, camera, saved = {}) {
     ...cityStreets.obstacles,
     ...cityTower.obstacles,
     ...maintenance.obstacles,
+    ...service.obstacles,
+    // The living surface is a deck, not the outermost pressure-hull floor.
+    // Its underside stays solid above the enclosed service spaces.
+    {
+      theta: 0,
+      y: 0,
+      width: Math.PI * 2 * RADIUS,
+      depth: LENGTH,
+      base: -0.6,
+      height: 0.6,
+    },
   );
   applyAtmosphere(scene, districtGroup, terrainMesh, obstacles);
 
@@ -839,6 +853,7 @@ export function createWorld(scene, camera, saved = {}) {
     residents.update(dt, elapsed);
     delivery.update(dt, elapsed);
     maintenance.update(dt, elapsed);
+    service.update(dt, elapsed);
     for (let i = 0; i < beaconAnims.length; i++) {
       const b = beaconAnims[i];
       if (b.crystal) {
@@ -863,8 +878,9 @@ export function createWorld(scene, camera, saved = {}) {
   }
 
   return {
+    groundHeight: SERVICE_FLOOR,
     obstacles,
-    stops: [...DISTRICT_STOPS, ...CITY_STOPS],
+    stops: [...DISTRICT_STOPS, ...CITY_STOPS, ...SERVICE_STOPS],
     delivery,
     maintenance,
     update,

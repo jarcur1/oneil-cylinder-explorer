@@ -1,5 +1,11 @@
 import { Vector3 } from "three";
-import { RADIUS, LENGTH, SPAWN, EYE_HEIGHT, GRAVITY } from "./habitat.js";
+import {
+  RADIUS,
+  LENGTH,
+  SPAWN,
+  EYE_HEIGHT,
+  gravityAtHeight,
+} from "./habitat.js";
 
 const TWO_PI = Math.PI * 2;
 const HALF_LENGTH = LENGTH * 0.5;
@@ -38,7 +44,7 @@ const _target = new Vector3();
 const _up = new Vector3();
 
 export function createPlayer(camera, domElement, options = {}) {
-  const { onLockChange } = options;
+  const { onLockChange, groundHeight = 0 } = options;
   // Arc-coordinate prisms may be grounded or elevated (bridges, floors, roofs).
   const collisionBoxes = (options.obstacles ?? []).map(
     ({ theta, y, width, depth, height, base = 0 }) => ({
@@ -366,7 +372,7 @@ export function createPlayer(camera, domElement, options = {}) {
   }
 
   function computeFloorHeight(previousHeight) {
-    let floor = 0;
+    let floor = groundHeight;
     for (const box of collisionBoxes) {
       // Use the previous height: a fast fall must not skip a thin raised deck.
       if (
@@ -449,7 +455,7 @@ export function createPlayer(camera, domElement, options = {}) {
         }
 
         if (!grounded) {
-          velH -= GRAVITY * subDt;
+          velH -= gravityAtHeight(h) * subDt;
         }
 
         const previousHeight = h;
@@ -481,7 +487,7 @@ export function createPlayer(camera, domElement, options = {}) {
   function teleport(pose) {
     theta = wrapTheta(pose.theta);
     y = Math.max(MIN_Y, Math.min(MAX_Y, pose.y));
-    h = Math.max(0, Math.min(RADIUS - EYE_HEIGHT - 1, pose.height));
+    h = Math.max(groundHeight, Math.min(RADIUS - EYE_HEIGHT - 1, pose.height));
     velH = 0;
     yaw = pose.yaw ?? 0;
     pitch = 0;
@@ -527,6 +533,7 @@ export function createPlayer(camera, domElement, options = {}) {
     target.speed = speed;
     target.grounded = grounded;
     target.locked = document.pointerLockElement === domElement;
+    target.gravity = gravityAtHeight(h);
     return target;
   }
 

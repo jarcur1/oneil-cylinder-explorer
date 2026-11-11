@@ -1,4 +1,5 @@
 import { RADIUS } from "./habitat.js";
+import { inServiceLevel } from "./service-layout.js";
 
 const TWO_PI = Math.PI * 2;
 const CANAL_THETA = 109.5 / RADIUS;
@@ -381,9 +382,20 @@ export function createSoundscape({ muted = false } = {}) {
     };
   }
 
-  function updateSpatial(playerTheta, playerY) {
+  function updateSpatial(playerTheta, playerY, playerHeight) {
     if (!ctx) return;
     const now = ctx.currentTime;
+    const inService = inServiceLevel(
+      Math.atan2(Math.sin(playerTheta), Math.cos(playerTheta)) * RADIUS,
+      playerY,
+      playerHeight,
+    );
+    const servicePumpDistance = inService
+      ? Math.hypot(
+          wrappedDeltaTheta(playerTheta, -27 / RADIUS) * (RADIUS - playerHeight),
+          playerY - 6,
+        )
+      : Infinity;
 
     // 1. Canal distance (s = 109.5, y in [-274, -145])
     const dArcCanal =
@@ -398,7 +410,9 @@ export function createSoundscape({ muted = false } = {}) {
     const maxWaterDist = 36.0;
     const waterFactor =
       distCanal < maxWaterDist ? Math.max(0, 1 - distCanal / maxWaterDist) : 0;
-    const targetWaterGain = waterFactor * waterFactor * WATER_MAX_GAIN;
+    const targetWaterGain = inService
+      ? Math.max(0, 1 - servicePumpDistance / 19) ** 2 * WATER_MAX_GAIN
+      : waterFactor * waterFactor * WATER_MAX_GAIN;
 
     if (waterGain) {
       waterGain.gain.setTargetAtTime(targetWaterGain, now, 0.09);
@@ -412,7 +426,9 @@ export function createSoundscape({ muted = false } = {}) {
     const maxPumpDist = 26.0;
     const pumpFactor =
       distPump < maxPumpDist ? Math.max(0, 1 - distPump / maxPumpDist) : 0;
-    const targetPumpGain = pumpFactor * pumpFactor * PUMP_MAX_GAIN;
+    const targetPumpGain = inService
+      ? Math.max(0, 1 - servicePumpDistance / 24) ** 2 * PUMP_MAX_GAIN
+      : pumpFactor * pumpFactor * PUMP_MAX_GAIN;
 
     if (pumpGain) {
       pumpGain.gain.setTargetAtTime(targetPumpGain, now, 0.09);
@@ -424,10 +440,9 @@ export function createSoundscape({ muted = false } = {}) {
     isInsideGreenhouse =
       dArcGH <= 11.0 && playerY >= -232.0 && playerY <= -196.0;
 
-    const targetWindGain = isInsideGreenhouse
-      ? WIND_DAMPED_GAIN
-      : WIND_BASE_GAIN;
-    const targetWindCutoff = isInsideGreenhouse ? 220 : 450;
+    const damped = isInsideGreenhouse || inService;
+    const targetWindGain = damped ? WIND_DAMPED_GAIN : WIND_BASE_GAIN;
+    const targetWindCutoff = damped ? 220 : 450;
 
     if (windGain) {
       windGain.gain.setTargetAtTime(targetWindGain, now, 0.12);
@@ -567,14 +582,14 @@ export function createSoundscape({ muted = false } = {}) {
     }
 
     const clampedDt = dt > 0.1 ? 0.1 : dt < 0 ? 0 : dt;
-    const { theta, y, speed, grounded } = playerState;
+    const { theta, y, height, speed, grounded } = playerState;
 
     // Spatial updates throttled at 10Hz (allocation free)
     spatialTimer += clampedDt;
     if (spatialTimer >= 0.1 || firstUpdate) {
       spatialTimer = 0;
       firstUpdate = false;
-      updateSpatial(theta, y);
+      updateSpatial(theta, y, height);
     }
 
     // Landing detection

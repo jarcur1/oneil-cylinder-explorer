@@ -5,6 +5,7 @@ import {
   SKYWALK_HEIGHT,
   TOWER,
 } from "./city-layout.js";
+import { SERVICE_ACCESS, SERVICE_FLOOR } from "./service-layout.js";
 
 const LIFT_STOPS = [
   {
@@ -16,7 +17,7 @@ const LIFT_STOPS = [
       yaw: Math.PI,
     },
     prompt: "Ride lift to Skyroom · 42 m",
-    message: "Civic Tower · Skyroom · 42 m above the hull",
+    message: "Civic Tower · Skyroom · 42 m above the living surface",
   },
   {
     ...MAIN_LIFT,
@@ -39,6 +40,19 @@ const LIFT_STOPS = [
     prompt: "Ride lift to street level",
     message: "Meridian · Street level",
   },
+  {
+    ...SERVICE_ACCESS,
+    destination: { ...SERVICE_ACCESS, height: SERVICE_FLOOR },
+    prompt: "Descend to service level · 8 m below",
+    message: "Meridian Service Level · Water and power · 8 m below",
+  },
+  {
+    ...SERVICE_ACCESS,
+    height: SERVICE_FLOOR,
+    destination: { ...SERVICE_ACCESS, yaw: Math.PI },
+    prompt: "Return lift to Meridian surface",
+    message: "Meridian · Service pavilion · Living surface",
+  },
 ];
 
 // Return stable descriptors, not new per-frame prompt/destination objects.
@@ -50,7 +64,8 @@ export function getCityLift(state) {
       Math.sin(state.theta - stop.theta),
       Math.cos(state.theta - stop.theta),
     );
-    if (Math.hypot(angle * RADIUS, state.y - stop.y) <= 2.8) return stop;
+    if (Math.hypot(angle * (RADIUS - stop.height), state.y - stop.y) <= 2.8)
+      return stop;
   }
   return null;
 }
