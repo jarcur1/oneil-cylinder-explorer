@@ -1,0 +1,1197 @@
+import * as THREE from "three";
+import { RADIUS } from "./habitat.js";
+import { addCivicBlock, createFacadeMaterial } from "./civic-primitives.js";
+import {
+  setSurfaceMatrix,
+  addSurfaceBox,
+  addSurfacePatch,
+  addSurfaceSign,
+} from "./surface.js";
+
+/**
+ * Creates the streets, civic plaza, mid-rise architecture, landscaping, and wayfinding
+ * for Meridian Civic District.
+ *
+ * @param {THREE.Object3D} parent
+ * @returns {{ obstacles: Array<{ theta: number, y: number, width: number, depth: number, height: number, base: number }> }}
+ */
+export function createCityStreets(parent) {
+  const districtGroup = new THREE.Group();
+  districtGroup.name = "cityStreets";
+  parent.add(districtGroup);
+
+  const obstacles = [];
+
+  // ==========================================
+  // 1. MATERIAL PALETTE
+  // Warm limestone/concrete with teal metal/glass and planted areas
+  // ==========================================
+  const mats = {
+    // Facades with procedural window textures
+    libraryFacade: createFacadeMaterial("#ded6c6", "#1c3d44", 8, 8),
+    housingNorthFacade: createFacadeMaterial("#d4c9b8", "#23494e", 8, 10),
+    transitFacade: createFacadeMaterial("#ece7dd", "#1e525a", 9, 12),
+    housingSouthFacade: createFacadeMaterial("#cfbeaa", "#2a4c48", 7, 7),
+    housingEastFacade: createFacadeMaterial("#c8beae", "#284b4f", 7, 8),
+    commercialFacade: createFacadeMaterial("#b9a891", "#1f3a3c", 7, 8),
+    workshopFacade: createFacadeMaterial("#9c988e", "#2f484e", 6, 5),
+
+    // Architectural Trim & Structure
+    limestone: new THREE.MeshStandardMaterial({
+      color: 0xdfd8c8,
+      roughness: 0.82,
+      metalness: 0.04,
+    }),
+    concretePlinth: new THREE.MeshStandardMaterial({
+      color: 0x7a7770,
+      roughness: 0.88,
+      metalness: 0.05,
+    }),
+    tealMetal: new THREE.MeshStandardMaterial({
+      color: 0x1b4648,
+      roughness: 0.38,
+      metalness: 0.65,
+    }),
+    bronzeMetal: new THREE.MeshStandardMaterial({
+      color: 0x2b2824,
+      roughness: 0.48,
+      metalness: 0.58,
+    }),
+    brassAccent: new THREE.MeshStandardMaterial({
+      color: 0xc4a35a,
+      roughness: 0.32,
+      metalness: 0.82,
+    }),
+    canopyGlass: new THREE.MeshStandardMaterial({
+      color: 0x4aa3ad,
+      roughness: 0.18,
+      metalness: 0.4,
+      transparent: true,
+      opacity: 0.72,
+    }),
+
+    // Paving
+    promenadePaving: new THREE.MeshStandardMaterial({
+      color: 0x86847e,
+      roughness: 0.84,
+      metalness: 0.06,
+    }),
+    plazaPaving: new THREE.MeshStandardMaterial({
+      color: 0xa49f93,
+      roughness: 0.82,
+      metalness: 0.05,
+    }),
+    plazaInlay: new THREE.MeshStandardMaterial({
+      color: 0x46484a,
+      roughness: 0.86,
+      metalness: 0.08,
+    }),
+    streetPaving: new THREE.MeshStandardMaterial({
+      color: 0x8f8a81,
+      roughness: 0.88,
+      metalness: 0.04,
+    }),
+    transitionPaving: new THREE.MeshStandardMaterial({
+      color: 0x7c786e,
+      roughness: 0.88,
+      metalness: 0.05,
+    }),
+    curbStone: new THREE.MeshStandardMaterial({
+      color: 0x726f68,
+      roughness: 0.86,
+      metalness: 0.06,
+    }),
+
+    // Landscaping & Foliage
+    turf: new THREE.MeshStandardMaterial({
+      color: 0x365e38,
+      roughness: 0.92,
+      metalness: 0.0,
+    }),
+    earthBed: new THREE.MeshStandardMaterial({
+      color: 0x3e3328,
+      roughness: 0.96,
+      metalness: 0.0,
+    }),
+    treeTrunk: new THREE.MeshStandardMaterial({
+      color: 0x544131,
+      roughness: 0.88,
+      metalness: 0.04,
+    }),
+    treeCanopy: new THREE.MeshStandardMaterial({
+      color: 0x275330,
+      roughness: 0.76,
+      metalness: 0.0,
+    }),
+    treeCanopyAccent: new THREE.MeshStandardMaterial({
+      color: 0x386c42,
+      roughness: 0.78,
+      metalness: 0.0,
+    }),
+    flowerGold: new THREE.MeshStandardMaterial({
+      color: 0xc89938,
+      roughness: 0.8,
+      metalness: 0.0,
+    }),
+
+    // Street Furniture & Lamps
+    woodCedar: new THREE.MeshStandardMaterial({
+      color: 0x7a5232,
+      roughness: 0.74,
+      metalness: 0.06,
+    }),
+    lampLuminaire: new THREE.MeshStandardMaterial({
+      color: 0xfef5dc,
+      emissive: 0xfce4a8,
+      emissiveIntensity: 0.85,
+      roughness: 0.25,
+      metalness: 0.1,
+    }),
+  };
+
+  // Shared unit geometries and reusable matrix
+  const unitBoxGeo = new THREE.BoxGeometry(1, 1, 1);
+  const unitCylinderGeo = new THREE.CylinderGeometry(0.5, 0.5, 1, 12).rotateX(
+    Math.PI / 2,
+  );
+  const unitSphereGeo = new THREE.SphereGeometry(0.5, 8, 8);
+  const tempMatrix = new THREE.Matrix4();
+
+  // Subgroups
+  const pavingGroup = new THREE.Group();
+  pavingGroup.name = "cityPaving";
+  districtGroup.add(pavingGroup);
+
+  const buildingsGroup = new THREE.Group();
+  buildingsGroup.name = "cityBuildings";
+  districtGroup.add(buildingsGroup);
+
+  const monumentsGroup = new THREE.Group();
+  monumentsGroup.name = "cityMonuments";
+  districtGroup.add(monumentsGroup);
+
+  const furnitureGroup = new THREE.Group();
+  furnitureGroup.name = "cityFurniture";
+  districtGroup.add(furnitureGroup);
+
+  // ==========================================
+  // 2. STREETS, PLAZA & PAVING NETWORK
+  // Legible blocks with curved radial ground patches
+  // ==========================================
+
+  // --- Farm-to-City Transition y[-110, -80] along promenade ---
+  addSurfacePatch(pavingGroup, mats.transitionPaving, 0, -102.5, 10, 15, 0.04);
+  addSurfacePatch(pavingGroup, mats.promenadePaving, 0, -87.5, 12, 15, 0.045);
+  addSurfacePatch(pavingGroup, mats.curbStone, -6.5, -95, 1.2, 30, 0.052);
+  addSurfacePatch(pavingGroup, mats.curbStone, 6.5, -95, 1.2, 30, 0.052);
+  addSurfacePatch(pavingGroup, mats.turf, -11.0, -95, 7.0, 28, 0.035);
+  addSurfacePatch(pavingGroup, mats.turf, 11.0, -95, 7.0, 28, 0.035);
+  addSurfacePatch(pavingGroup, mats.flowerGold, -10.0, -95, 2.4, 20, 0.04);
+  addSurfacePatch(pavingGroup, mats.flowerGold, 10.0, -95, 2.4, 20, 0.04);
+
+  // Transition Gateway Pylons at y = -81 (outside s[-5, 5])
+  addSurfaceBox(
+    monumentsGroup,
+    mats.concretePlinth,
+    -7.5,
+    -81,
+    1.4,
+    1.4,
+    4.2,
+    0,
+  );
+  addSurfaceBox(monumentsGroup, mats.tealMetal, -7.5, -81, 1.6, 1.6, 0.4, 4.2);
+  obstacles.push({
+    theta: -7.5 / RADIUS,
+    y: -81,
+    width: 1.4,
+    depth: 1.4,
+    height: 4.2,
+    base: 0,
+  });
+
+  addSurfaceBox(
+    monumentsGroup,
+    mats.concretePlinth,
+    7.5,
+    -81,
+    1.4,
+    1.4,
+    4.2,
+    0,
+  );
+  addSurfaceBox(monumentsGroup, mats.tealMetal, 7.5, -81, 1.6, 1.6, 0.4, 4.2);
+  obstacles.push({
+    theta: 7.5 / RADIUS,
+    y: -81,
+    width: 1.4,
+    depth: 1.4,
+    height: 4.2,
+    base: 0,
+  });
+
+  addSurfaceSign(
+    monumentsGroup,
+    "MERIDIAN CIVIC DISTRICT\nPROMENADE ENTRANCE · PLAZA 75m",
+    -7.5,
+    -82,
+    4.6,
+    3.0,
+  );
+  addSurfaceSign(
+    monumentsGroup,
+    "GREENWAY COMMONS\nFARMS · VILLAGE · MARKET SOUTH",
+    7.5,
+    -80,
+    4.6,
+    3.0,
+  );
+
+  // --- Promenade South y[-80, -20] ---
+  addSurfacePatch(pavingGroup, mats.promenadePaving, 0, -50, 12, 60, 0.045);
+  addSurfacePatch(pavingGroup, mats.curbStone, -6.6, -50, 1.2, 60, 0.052);
+  addSurfacePatch(pavingGroup, mats.curbStone, 6.6, -50, 1.2, 60, 0.052);
+  addSurfacePatch(pavingGroup, mats.turf, -14.0, -50, 12, 56, 0.035);
+  addSurfacePatch(pavingGroup, mats.turf, 14.0, -50, 12, 56, 0.035);
+
+  // --- Central Civic Plaza centered at s = 0, y = -5 ---
+  // Broad plaza stone terrace covering s[-22, 22], y[-20, 10]
+  addSurfacePatch(pavingGroup, mats.plazaPaving, 0, -5, 44, 30, 0.05);
+  // Concentric geometric dark slate inlay
+  addSurfacePatch(pavingGroup, mats.plazaInlay, 0, -5, 24, 20, 0.056);
+  // Formal promenade line running straight through s[-5, 5]
+  addSurfacePatch(pavingGroup, mats.promenadePaving, 0, -5, 10, 30, 0.06);
+  // Plaza border curbstones
+  addSurfacePatch(pavingGroup, mats.curbStone, -21.5, -5, 1.2, 29, 0.062);
+  addSurfacePatch(pavingGroup, mats.curbStone, 21.5, -5, 1.2, 29, 0.062);
+
+  // --- East Route to Civic Tower Doorway ---
+  // East route leaves plaza along y = 5 (s from 5 to 53, width 48, depth 10)
+  addSurfacePatch(pavingGroup, mats.streetPaving, 29, 5, 48, 10, 0.048);
+  addSurfacePatch(pavingGroup, mats.curbStone, 29, 0.5, 48, 1.2, 0.055);
+  addSurfacePatch(pavingGroup, mats.curbStone, 29, 9.5, 48, 1.2, 0.055);
+  // Turn north along s = 48 from y = 5 to y = 14.8 (meeting south border of tower parcel at y = 15)
+  addSurfacePatch(pavingGroup, mats.streetPaving, 48, 10, 10, 10, 0.05);
+  addSurfacePatch(pavingGroup, mats.curbStone, 43.5, 10, 1.2, 10, 0.055);
+  addSurfacePatch(pavingGroup, mats.curbStone, 52.5, 10, 1.2, 10, 0.055);
+
+  // --- North Promenade y[10, 125] ---
+  addSurfacePatch(pavingGroup, mats.promenadePaving, 0, 35, 12, 50, 0.045);
+  addSurfacePatch(pavingGroup, mats.promenadePaving, 0, 75, 12, 30, 0.045);
+  addSurfacePatch(pavingGroup, mats.promenadePaving, 0, 107.5, 12, 35, 0.045);
+  addSurfacePatch(pavingGroup, mats.curbStone, -6.6, 67.5, 1.2, 115, 0.052);
+  addSurfacePatch(pavingGroup, mats.curbStone, 6.6, 67.5, 1.2, 115, 0.052);
+  addSurfacePatch(pavingGroup, mats.turf, -14.0, 35, 12, 45, 0.035);
+  addSurfacePatch(pavingGroup, mats.turf, 14.0, 35, 12, 45, 0.035);
+
+  // --- Side Streets & Building Access Lanes ---
+  // North cross-street along y = 65 (West to Housing s[-31, -6]; East to Skywalk Lift s[6, 26])
+  addSurfacePatch(pavingGroup, mats.streetPaving, -18.5, 65, 25, 8, 0.048);
+  addSurfacePatch(pavingGroup, mats.streetPaving, 16.0, 65, 20, 8, 0.048);
+  // Skywalk lift ground terrace around s = 18, y = 65 (completely unobstructed at anchor)
+  addSurfacePatch(pavingGroup, mats.plazaInlay, 18.0, 65, 8, 8, 0.052);
+
+  // West South Housing lane (y = -62)
+  addSurfacePatch(pavingGroup, mats.streetPaving, -17.0, -62, 22, 8, 0.048);
+
+  // East South Housing lane (y = -49)
+  addSurfacePatch(pavingGroup, mats.streetPaving, 21.5, -49, 31, 8, 0.048);
+
+  // West Workshop lane (y = 9)
+  addSurfacePatch(pavingGroup, mats.streetPaving, -38.5, 9, 65, 8, 0.048);
+
+  // East Outer Commercial lane (y = -7)
+  addSurfacePatch(pavingGroup, mats.streetPaving, 52.5, -7, 61, 8, 0.048);
+
+  // Transit Concourse approach (y = 98)
+  addSurfacePatch(pavingGroup, mats.streetPaving, 25.0, 98, 38, 10, 0.048);
+  addSurfacePatch(pavingGroup, mats.plazaPaving, 42.0, 98, 12, 16, 0.052);
+
+  // ==========================================
+  // 3. MID-RISE CIVIC ARCHITECTURE (7 Fixed Footprints)
+  // Multi-tier curved solids, setbacks, canopies, non-enterable markers
+  // ==========================================
+
+  // ------------------------------------------
+  // 1. Library: s = -35, y = -20, w = 24, d = 30, h = 30
+  // ------------------------------------------
+  const libGroup = new THREE.Group();
+  libGroup.name = "bldgLibrary";
+  buildingsGroup.add(libGroup);
+  // Foundation plinth
+  addCivicBlock(libGroup, mats.concretePlinth, -35, -20, 24.6, 30.6, 0.6, 0);
+  // Main volume
+  addCivicBlock(libGroup, mats.libraryFacade, -35, -20, 24, 30, 22.0, 0.6);
+  // Cornice band
+  addCivicBlock(libGroup, mats.limestone, -35, -20, 24.5, 30.5, 0.8, 22.6);
+  // Stepped setback tier (reaches 30 m)
+  addCivicBlock(libGroup, mats.libraryFacade, -35, -20, 18, 24, 6.6, 23.4);
+  // Rooftop reading room clerestory lantern
+  addCivicBlock(libGroup, mats.limestone, -35, -20, 10, 14, 0.8, 30.0);
+  addCivicBlock(libGroup, mats.canopyGlass, -35, -20, 9.2, 13.2, 1.6, 30.8);
+  addCivicBlock(libGroup, mats.tealMetal, -35, -20, 9.6, 13.6, 0.4, 32.4);
+  // Plaza portico canopy on east facade (s = -23)
+  addCivicBlock(libGroup, mats.tealMetal, -21.8, -20, 2.6, 12.0, 0.4, 4.2);
+  obstacles.push({
+    theta: -21.8 / RADIUS,
+    y: -20,
+    width: 2.6,
+    depth: 12,
+    height: 0.55,
+    base: 4.2,
+  });
+  addCivicBlock(libGroup, mats.canopyGlass, -21.8, -20, 2.2, 11.2, 0.15, 4.6);
+  addSurfaceBox(libGroup, mats.bronzeMetal, -20.6, -24, 0.5, 0.5, 4.2, 0);
+  addSurfaceBox(libGroup, mats.bronzeMetal, -20.6, -16, 0.5, 0.5, 4.2, 0);
+  addSurfaceBox(libGroup, mats.bronzeMetal, -22.9, -20, 0.3, 7.0, 3.8, 0);
+  addSurfaceSign(
+    libGroup,
+    "MERIDIAN CIVIC LIBRARY\nCENTRAL ARCHIVES · PASS REQUIRED",
+    -21.5,
+    -20,
+    4.8,
+    4.8,
+  );
+  // Obstacles
+  obstacles.push({
+    theta: -35 / RADIUS,
+    y: -20,
+    width: 24,
+    depth: 30,
+    height: 30,
+    base: 0,
+  });
+  obstacles.push({
+    theta: -20.6 / RADIUS,
+    y: -24,
+    width: 0.6,
+    depth: 0.6,
+    height: 4.2,
+    base: 0,
+  });
+  obstacles.push({
+    theta: -20.6 / RADIUS,
+    y: -16,
+    width: 0.6,
+    depth: 0.6,
+    height: 4.2,
+    base: 0,
+  });
+
+  // ------------------------------------------
+  // 2. West North Housing: s = -44, y = 65, w = 26, d = 30, h = 38
+  // ------------------------------------------
+  const hNorthGroup = new THREE.Group();
+  hNorthGroup.name = "bldgHousingNorth";
+  buildingsGroup.add(hNorthGroup);
+  // Foundation plinth
+  addCivicBlock(hNorthGroup, mats.concretePlinth, -44, 65, 26.6, 30.6, 0.6, 0);
+  // Main volume
+  addCivicBlock(
+    hNorthGroup,
+    mats.housingNorthFacade,
+    -44,
+    65,
+    26,
+    30,
+    30.0,
+    0.6,
+  );
+  // Cornice
+  addCivicBlock(hNorthGroup, mats.limestone, -44, 65, 26.4, 30.4, 0.8, 30.6);
+  // Stepped setback tier (reaches 38 m)
+  addCivicBlock(
+    hNorthGroup,
+    mats.housingNorthFacade,
+    -44,
+    65,
+    20,
+    24,
+    6.6,
+    31.4,
+  );
+  // Rooftop aeroponic garden pergola
+  addCivicBlock(hNorthGroup, mats.tealMetal, -44, 65, 14, 16, 3.2, 38.0);
+  addCivicBlock(hNorthGroup, mats.limestone, -44, 65, 14.4, 16.4, 0.4, 41.2);
+  // Ground entrance canopy facing east (s = -31)
+  addCivicBlock(hNorthGroup, mats.tealMetal, -29.8, 65, 2.4, 8.0, 0.35, 3.6);
+  obstacles.push({
+    theta: -29.8 / RADIUS,
+    y: 65,
+    width: 2.4,
+    depth: 8,
+    height: 0.35,
+    base: 3.6,
+  });
+  addSurfaceBox(hNorthGroup, mats.bronzeMetal, -28.7, 62, 0.45, 0.45, 3.6, 0);
+  addSurfaceBox(hNorthGroup, mats.bronzeMetal, -28.7, 68, 0.45, 0.45, 3.6, 0);
+  addSurfaceSign(
+    hNorthGroup,
+    "RESIDENTIAL QUAD 03\nPRIVATE ACCESS · RESIDENTS ONLY",
+    -29.5,
+    65,
+    4.5,
+    4.0,
+  );
+  // Skywalk viewing terrace abutment facade accent at s = -31, h = 9 (no open door)
+  addCivicBlock(hNorthGroup, mats.tealMetal, -31.3, 65, 0.6, 6.0, 3.2, 8.8);
+  addSurfaceSign(
+    hNorthGroup,
+    "VIEWING TERRACE TERMINUS\nNO PUBLIC ENTRY TO RESIDENCES",
+    -30.8,
+    65,
+    4.2,
+    12.2,
+  );
+  // Obstacles
+  obstacles.push({
+    theta: -44 / RADIUS,
+    y: 65,
+    width: 26,
+    depth: 30,
+    height: 38,
+    base: 0,
+  });
+  obstacles.push({
+    theta: -28.7 / RADIUS,
+    y: 62,
+    width: 0.5,
+    depth: 0.5,
+    height: 3.6,
+    base: 0,
+  });
+  obstacles.push({
+    theta: -28.7 / RADIUS,
+    y: 68,
+    width: 0.5,
+    depth: 0.5,
+    height: 3.6,
+    base: 0,
+  });
+
+  // ------------------------------------------
+  // 3. East North Transit Building: s = 58, y = 98, w = 28, d = 26, h = 44
+  // ------------------------------------------
+  const transitGroup = new THREE.Group();
+  transitGroup.name = "bldgTransit";
+  buildingsGroup.add(transitGroup);
+  // Foundation plinth
+  addCivicBlock(transitGroup, mats.concretePlinth, 58, 98, 28.6, 26.6, 0.6, 0);
+  // Main concourse volume
+  addCivicBlock(transitGroup, mats.transitFacade, 58, 98, 28, 26, 34.0, 0.6);
+  // Belt cornice
+  addCivicBlock(transitGroup, mats.tealMetal, 58, 98, 28.5, 26.5, 1.0, 34.6);
+  // Stepped setback tower (reaches 44 m)
+  addCivicBlock(transitGroup, mats.transitFacade, 58, 98, 20, 18, 8.4, 35.6);
+  // Roof mechanical plant room
+  addCivicBlock(transitGroup, mats.concretePlinth, 58, 98, 12, 10, 3.2, 44.0);
+  // Communications mast & spire (landmark reaches ~55.7 m, below 60 m tower)
+  addCivicBlock(transitGroup, mats.tealMetal, 58, 98, 3.0, 3.0, 4.0, 47.2);
+  addSurfaceBox(transitGroup, mats.bronzeMetal, 58, 98, 0.6, 0.6, 4.5, 51.2);
+  // West concourse entrance canopy (facing plaza at s = 44)
+  addCivicBlock(transitGroup, mats.tealMetal, 42.6, 98, 3.0, 14.0, 0.4, 4.4);
+  obstacles.push({
+    theta: 42.6 / RADIUS,
+    y: 98,
+    width: 3,
+    depth: 14,
+    height: 0.55,
+    base: 4.4,
+  });
+  addCivicBlock(transitGroup, mats.canopyGlass, 42.6, 98, 2.6, 13.2, 0.15, 4.8);
+  addSurfaceBox(transitGroup, mats.bronzeMetal, 41.3, 92, 0.5, 0.5, 4.4, 0);
+  addSurfaceBox(transitGroup, mats.bronzeMetal, 41.3, 104, 0.5, 0.5, 4.4, 0);
+  addSurfaceSign(
+    transitGroup,
+    "MERIDIAN TRANSIT TERMINAL\nPLATFORMS 1-4 · PASS REQUIRED",
+    42.0,
+    98,
+    5.0,
+    5.0,
+  );
+  // Obstacles
+  obstacles.push({
+    theta: 58 / RADIUS,
+    y: 98,
+    width: 28,
+    depth: 26,
+    height: 44,
+    base: 0,
+  });
+  obstacles.push({
+    theta: 41.3 / RADIUS,
+    y: 92,
+    width: 0.6,
+    depth: 0.6,
+    height: 4.4,
+    base: 0,
+  });
+  obstacles.push({
+    theta: 41.3 / RADIUS,
+    y: 104,
+    width: 0.6,
+    depth: 0.6,
+    height: 4.4,
+    base: 0,
+  });
+
+  // ------------------------------------------
+  // 4. West South Housing: s = -40, y = -62, w = 25, d = 25, h = 20
+  // ------------------------------------------
+  const hSouthGroup = new THREE.Group();
+  hSouthGroup.name = "bldgHousingSouth";
+  buildingsGroup.add(hSouthGroup);
+  addCivicBlock(hSouthGroup, mats.concretePlinth, -40, -62, 25.5, 25.5, 0.5, 0);
+  addCivicBlock(
+    hSouthGroup,
+    mats.housingSouthFacade,
+    -40,
+    -62,
+    25,
+    25,
+    15.0,
+    0.5,
+  );
+  addCivicBlock(hSouthGroup, mats.limestone, -40, -62, 25.4, 25.4, 0.6, 15.5);
+  addCivicBlock(
+    hSouthGroup,
+    mats.housingSouthFacade,
+    -40,
+    -62,
+    18,
+    18,
+    3.9,
+    16.1,
+  );
+  addCivicBlock(hSouthGroup, mats.tealMetal, -40, -62, 18.2, 18.2, 0.5, 20.0);
+  addCivicBlock(hSouthGroup, mats.tealMetal, -26.3, -62, 2.4, 7.0, 0.35, 3.4);
+  obstacles.push({
+    theta: -26.3 / RADIUS,
+    y: -62,
+    width: 2.4,
+    depth: 7,
+    height: 0.35,
+    base: 3.4,
+  });
+  addSurfaceSign(
+    hSouthGroup,
+    "COMMONS RESIDENCES SOUTH\nAUTHORIZED ACCESS ONLY",
+    -26.0,
+    -62,
+    4.4,
+    3.8,
+  );
+  obstacles.push({
+    theta: -40 / RADIUS,
+    y: -62,
+    width: 25,
+    depth: 25,
+    height: 20,
+    base: 0,
+  });
+
+  // ------------------------------------------
+  // 5. East South Housing: s = 48, y = -49, w = 22, d = 24, h = 24
+  // ------------------------------------------
+  const hEastGroup = new THREE.Group();
+  hEastGroup.name = "bldgHousingEast";
+  buildingsGroup.add(hEastGroup);
+  addCivicBlock(hEastGroup, mats.concretePlinth, 48, -49, 22.5, 24.5, 0.5, 0);
+  addCivicBlock(hEastGroup, mats.housingEastFacade, 48, -49, 22, 24, 18.5, 0.5);
+  addCivicBlock(hEastGroup, mats.limestone, 48, -49, 22.4, 24.4, 0.6, 19.0);
+  addCivicBlock(hEastGroup, mats.housingEastFacade, 48, -49, 16, 18, 4.4, 19.6);
+  addCivicBlock(hEastGroup, mats.tealMetal, 48, -49, 14, 16, 1.0, 24.0);
+  addCivicBlock(hEastGroup, mats.tealMetal, 35.8, -49, 2.4, 7.0, 0.35, 3.4);
+  obstacles.push({
+    theta: 35.8 / RADIUS,
+    y: -49,
+    width: 2.4,
+    depth: 7,
+    height: 0.35,
+    base: 3.4,
+  });
+  addSurfaceSign(
+    hEastGroup,
+    "HABITAT STAFF RESIDENCES\nRESTRICTED ACCESS · KEYCARD ONLY",
+    35.5,
+    -49,
+    4.4,
+    3.8,
+  );
+  obstacles.push({
+    theta: 48 / RADIUS,
+    y: -49,
+    width: 22,
+    depth: 24,
+    height: 24,
+    base: 0,
+  });
+
+  // ------------------------------------------
+  // 6. East Outer Commercial: s = 94, y = -7, w = 22, d = 28, h = 26
+  // ------------------------------------------
+  const commGroup = new THREE.Group();
+  commGroup.name = "bldgCommercial";
+  buildingsGroup.add(commGroup);
+  addCivicBlock(commGroup, mats.concretePlinth, 94, -7, 22.5, 28.5, 0.5, 0);
+  addCivicBlock(commGroup, mats.commercialFacade, 94, -7, 22, 28, 20.5, 0.5);
+  addCivicBlock(commGroup, mats.limestone, 94, -7, 22.4, 28.4, 0.6, 21.0);
+  addCivicBlock(commGroup, mats.commercialFacade, 94, -7, 16, 20, 4.4, 21.6);
+  addCivicBlock(commGroup, mats.tealMetal, 94, -7, 14, 16, 1.4, 26.0);
+  addCivicBlock(commGroup, mats.tealMetal, 81.8, -7, 2.4, 8.0, 0.35, 3.5);
+  obstacles.push({
+    theta: 81.8 / RADIUS,
+    y: -7,
+    width: 2.4,
+    depth: 8,
+    height: 0.35,
+    base: 3.5,
+  });
+  addSurfaceSign(
+    commGroup,
+    "MERIDIAN COMMERCIAL EXCHANGE\nTRADING FLOOR · BADGE REQUIRED",
+    81.5,
+    -7,
+    4.8,
+    3.9,
+  );
+  obstacles.push({
+    theta: 94 / RADIUS,
+    y: -7,
+    width: 22,
+    depth: 28,
+    height: 26,
+    base: 0,
+  });
+
+  // ------------------------------------------
+  // 7. West Outer Workshop: s = -80, y = 9, w = 18, d = 26, h = 16
+  // ------------------------------------------
+  const wrkGroup = new THREE.Group();
+  wrkGroup.name = "bldgWorkshop";
+  buildingsGroup.add(wrkGroup);
+  addCivicBlock(wrkGroup, mats.concretePlinth, -80, 9, 18.5, 26.5, 0.5, 0);
+  addCivicBlock(wrkGroup, mats.workshopFacade, -80, 9, 18, 26, 12.5, 0.5);
+  addCivicBlock(wrkGroup, mats.tealMetal, -80, 9, 10, 20, 3.0, 13.0);
+  addCivicBlock(wrkGroup, mats.tealMetal, -69.8, 9, 2.4, 10.0, 0.35, 3.8);
+  obstacles.push({
+    theta: -69.8 / RADIUS,
+    y: 9,
+    width: 2.4,
+    depth: 10,
+    height: 0.35,
+    base: 3.8,
+  });
+  addSurfaceSign(
+    wrkGroup,
+    "CIVIC MAINTENANCE WORKSHOP\nAUTHORIZED PERSONNEL ONLY",
+    -69.5,
+    9,
+    4.8,
+    4.2,
+  );
+  obstacles.push({
+    theta: -80 / RADIUS,
+    y: 9,
+    width: 18,
+    depth: 26,
+    height: 16,
+    base: 0,
+  });
+
+  // ==========================================
+  // 4. PLAZA CENTERPIECE & CIVIC WAYFINDING
+  // Distinctive off-center monument & multi-route directories
+  // ==========================================
+
+  // --- Plaza Centerpiece: The Meridian Armillary (s = 12, y = -5) ---
+  // Tiered stone plinth (outside s[-5, 5])
+  addCivicBlock(monumentsGroup, mats.concretePlinth, 12, -5, 4.6, 4.6, 0.7, 0);
+  addCivicBlock(monumentsGroup, mats.limestone, 12, -5, 3.6, 3.6, 0.8, 0.7);
+  addCivicBlock(monumentsGroup, mats.limestone, 12, -5, 2.4, 2.4, 1.8, 1.5);
+  addCivicBlock(monumentsGroup, mats.brassAccent, 12, -5, 2.6, 2.6, 0.3, 3.3);
+
+  // Sculptural celestial sphere and rings
+  const sphereMesh = new THREE.Mesh(
+    new THREE.SphereGeometry(0.75, 16, 16),
+    mats.brassAccent,
+  );
+  setSurfaceMatrix(tempMatrix, 12 / RADIUS, -5, 3.8, 1.5, 1.5, 1.5);
+  sphereMesh.applyMatrix4(tempMatrix);
+  monumentsGroup.add(sphereMesh);
+
+  const ringGroup = new THREE.Group();
+  ringGroup.applyMatrix4(
+    setSurfaceMatrix(tempMatrix, 12 / RADIUS, -5, 4.55, 1, 1, 1),
+  );
+  const ringMesh1 = new THREE.Mesh(
+    new THREE.TorusGeometry(1.4, 0.08, 8, 24),
+    mats.tealMetal,
+  );
+  ringMesh1.rotation.set(Math.PI / 4, 0, 0);
+  ringGroup.add(ringMesh1);
+
+  const ringMesh2 = new THREE.Mesh(
+    new THREE.TorusGeometry(1.7, 0.08, 8, 24),
+    mats.brassAccent,
+  );
+  ringMesh2.rotation.set(-Math.PI / 4, Math.PI / 3, 0);
+  ringGroup.add(ringMesh2);
+  monumentsGroup.add(ringGroup);
+
+  addSurfaceBox(monumentsGroup, mats.brassAccent, 12, -5, 0.3, 0.3, 1.2, 6.4);
+  obstacles.push({
+    theta: 12 / RADIUS,
+    y: -5,
+    width: 4.6,
+    depth: 4.6,
+    height: 4.5,
+    base: 0,
+  });
+
+  // --- Distinctive Map & Directional Signposts ---
+  // 1. Plaza Main Map & Directory Kiosk (s = 8.5, y = -10)
+  addSurfaceBox(
+    monumentsGroup,
+    mats.concretePlinth,
+    8.5,
+    -10,
+    1.8,
+    1.0,
+    0.4,
+    0,
+  );
+  addSurfaceBox(monumentsGroup, mats.tealMetal, 8.5, -10, 1.6, 0.8, 2.2, 0.4);
+  addSurfaceSign(
+    monumentsGroup,
+    "MERIDIAN CIVIC DISTRICT\n↑ SKYWALK LIFT · 75m\n→ TOWER LOBBY · SKYROOM\n↓ GREENWAY COMMONS",
+    8.5,
+    -10,
+    3.8,
+    2.4,
+  );
+  obstacles.push({
+    theta: 8.5 / RADIUS,
+    y: -10,
+    width: 1.8,
+    depth: 1.0,
+    height: 2.6,
+    base: 0,
+  });
+
+  // 2. West Plaza Directory (s = -16, y = -5)
+  addSurfaceBox(monumentsGroup, mats.concretePlinth, -16, -5, 1.4, 0.8, 0.4, 0);
+  addSurfaceBox(monumentsGroup, mats.tealMetal, -16, -5, 1.2, 0.6, 2.0, 0.4);
+  addSurfaceSign(
+    monumentsGroup,
+    "CIVIC LIBRARY & ARCHIVES\nWEST FORECOURT · READING ROOM",
+    -16,
+    -5,
+    4.0,
+    2.4,
+  );
+  obstacles.push({
+    theta: -16 / RADIUS,
+    y: -5,
+    width: 1.4,
+    depth: 0.8,
+    height: 2.4,
+    base: 0,
+  });
+
+  // 3. East Route Directory (s = 8, y = 9.2 - north curb of east street)
+  addSurfaceBox(monumentsGroup, mats.concretePlinth, 8, 9.2, 1.2, 0.8, 0.4, 0);
+  addSurfaceBox(monumentsGroup, mats.tealMetal, 8, 9.2, 1.0, 0.6, 2.0, 0.4);
+  addSurfaceSign(
+    monumentsGroup,
+    "EAST CIVIC ROUTE\n→ CIVIC TOWER & SKYROOM",
+    8,
+    9.2,
+    4.2,
+    2.5,
+  );
+  obstacles.push({
+    theta: 8 / RADIUS,
+    y: 9.2,
+    width: 1.2,
+    depth: 0.8,
+    height: 2.4,
+    base: 0,
+  });
+
+  // 4. Tower South Approach Wayfinding (s = 43.5, y = 3.5 - corner curb)
+  addSurfaceBox(
+    monumentsGroup,
+    mats.concretePlinth,
+    43.5,
+    3.5,
+    1.2,
+    0.8,
+    0.4,
+    0,
+  );
+  addSurfaceBox(monumentsGroup, mats.tealMetal, 43.5, 3.5, 1.0, 0.6, 2.0, 0.4);
+  addSurfaceSign(
+    monumentsGroup,
+    "CIVIC TOWER SOUTH LOBBY\nMAIN LIFT · SKYROOM 42m ↑",
+    43.5,
+    3.5,
+    4.5,
+    2.5,
+  );
+  obstacles.push({
+    theta: 43.5 / RADIUS,
+    y: 3.5,
+    width: 1.2,
+    depth: 0.8,
+    height: 2.4,
+    base: 0,
+  });
+
+  // 5. Skywalk Street Lift Wayfinding (s = 11, y = 68.5 - north curb of lift cross-street)
+  addSurfaceBox(
+    monumentsGroup,
+    mats.concretePlinth,
+    11,
+    68.5,
+    1.2,
+    0.8,
+    0.4,
+    0,
+  );
+  addSurfaceBox(monumentsGroup, mats.tealMetal, 11, 68.5, 1.0, 0.6, 2.0, 0.4);
+  addSurfaceSign(
+    monumentsGroup,
+    "PUBLIC SKYWALK LIFT\nELEVATED VIEWING TERRACE →",
+    11,
+    68.5,
+    4.2,
+    2.5,
+  );
+  obstacles.push({
+    theta: 11 / RADIUS,
+    y: 68.5,
+    width: 1.2,
+    depth: 0.8,
+    height: 2.4,
+    base: 0,
+  });
+
+  // 6. Transit Terminal Wayfinding (s = 11, y = 102.5 - north curb of transit street)
+  addSurfaceBox(
+    monumentsGroup,
+    mats.concretePlinth,
+    11,
+    102.5,
+    1.2,
+    0.8,
+    0.4,
+    0,
+  );
+  addSurfaceBox(monumentsGroup, mats.tealMetal, 11, 102.5, 1.0, 0.6, 2.0, 0.4);
+  addSurfaceSign(
+    monumentsGroup,
+    "MERIDIAN TRANSIT TERMINAL\nPLATFORMS 1-4 · CONCOURSE →",
+    11,
+    102.5,
+    4.5,
+    2.5,
+  );
+  obstacles.push({
+    theta: 11 / RADIUS,
+    y: 102.5,
+    width: 1.2,
+    depth: 0.8,
+    height: 2.4,
+    base: 0,
+  });
+  // 7. Arrival Point Wayfinding (y = -78)
+  addSurfaceSign(
+    monumentsGroup,
+    "MERIDIAN CIVIC DISTRICT\nCIVIC PLAZA · PROMENADE NORTH",
+    -7.0,
+    -78,
+    4.6,
+    2.8,
+  );
+  addSurfaceSign(
+    monumentsGroup,
+    "GREENWAY PROMENADE\nMARKET · FARMS · OVERLOOK SOUTH",
+    7.0,
+    -78,
+    4.6,
+    2.8,
+  );
+
+  // ==========================================
+  // 5. STREET FURNITURE & INSTANCED ELEMENTS
+  // Benches, Avenue Trees, Planters, Civic Lighting
+  // ==========================================
+
+  // --- Street Benches ---
+  const benchLocations = [
+    // Promenade South
+    { s: -6.8, y: -64 },
+    { s: 6.8, y: -64 },
+    { s: -6.8, y: -42 },
+    { s: 6.8, y: -42 },
+    { s: -6.8, y: -26 },
+    { s: 6.8, y: -26 },
+
+    // Civic Plaza Perimeter
+    { s: -15.0, y: -14 },
+    { s: -15.0, y: 4 },
+    { s: 15.0, y: -14 },
+    { s: 15.0, y: 4 },
+
+    // Promenade North
+    { s: -6.8, y: 22 },
+    { s: 6.8, y: 22 },
+    { s: -6.8, y: 46 },
+    { s: 6.8, y: 46 },
+    { s: -6.8, y: 78 },
+    { s: 6.8, y: 78 },
+    { s: -6.8, y: 104 },
+    { s: 6.8, y: 104 },
+
+    // Library Forecourt
+    { s: -20.0, y: -12 },
+    { s: -20.0, y: -28 },
+
+    // Transit Concourse
+    { s: 35.0, y: 92 },
+    { s: 35.0, y: 104 },
+  ];
+
+  const benchFrameMesh = new THREE.InstancedMesh(
+    unitBoxGeo,
+    mats.tealMetal,
+    benchLocations.length,
+  );
+  const benchWoodMesh = new THREE.InstancedMesh(
+    unitBoxGeo,
+    mats.woodCedar,
+    benchLocations.length * 2,
+  );
+
+  benchLocations.forEach((b, i) => {
+    // Frame base
+    setSurfaceMatrix(tempMatrix, b.s / RADIUS, b.y, 0, 2.2, 0.75, 0.45);
+    benchFrameMesh.setMatrixAt(i, tempMatrix);
+
+    // Seat slat
+    setSurfaceMatrix(tempMatrix, b.s / RADIUS, b.y, 0.45, 2.1, 0.65, 0.08);
+    benchWoodMesh.setMatrixAt(i * 2, tempMatrix);
+
+    // Back slat
+    setSurfaceMatrix(tempMatrix, b.s / RADIUS, b.y + 0.3, 0.55, 2.1, 0.1, 0.35);
+    benchWoodMesh.setMatrixAt(i * 2 + 1, tempMatrix);
+
+    obstacles.push({
+      theta: b.s / RADIUS,
+      y: b.y,
+      width: 2.2,
+      depth: 0.8,
+      height: 0.85,
+      base: 0,
+    });
+  });
+
+  benchFrameMesh.instanceMatrix.needsUpdate = true;
+  benchWoodMesh.instanceMatrix.needsUpdate = true;
+  furnitureGroup.add(benchFrameMesh);
+  furnitureGroup.add(benchWoodMesh);
+
+  // --- Avenue Trees & Raised Planters ---
+  const treeLocations = [
+    // Promenade South
+    { s: -7.2, y: -72 },
+    { s: 7.2, y: -72 },
+    { s: -7.2, y: -54 },
+    { s: 7.2, y: -54 },
+    { s: -7.2, y: -34 },
+    { s: 7.2, y: -34 },
+
+    // Plaza Margins
+    { s: -18.0, y: -18 },
+    { s: -18.0, y: 8 },
+    { s: 18.0, y: -18 },
+    { s: 18.0, y: 8 },
+
+    // Promenade Mid
+    { s: -7.2, y: 14 },
+    { s: 7.2, y: 14 },
+    { s: -7.2, y: 34 },
+    { s: 7.2, y: 34 },
+    { s: -7.2, y: 54 },
+    { s: 7.2, y: 54 },
+
+    // Promenade North
+    { s: -7.2, y: 72 },
+    { s: 7.2, y: 72 },
+    { s: -7.2, y: 88 },
+    { s: 7.2, y: 88 },
+    { s: -7.2, y: 112 },
+    { s: 7.2, y: 112 },
+    { s: -7.2, y: 126 },
+    { s: 7.2, y: 126 },
+
+    // East Route Border
+    { s: 20.0, y: 0.5 },
+    { s: 34.0, y: 0.5 },
+
+    // Transit Concourse
+    { s: 28.0, y: 105 },
+    { s: 42.0, y: 107 },
+  ];
+
+  const treePlanterMesh = new THREE.InstancedMesh(
+    unitBoxGeo,
+    mats.concretePlinth,
+    treeLocations.length,
+  );
+  const treeEarthMesh = new THREE.InstancedMesh(
+    unitBoxGeo,
+    mats.earthBed,
+    treeLocations.length,
+  );
+  const treeTrunkMesh = new THREE.InstancedMesh(
+    unitCylinderGeo,
+    mats.treeTrunk,
+    treeLocations.length,
+  );
+  const treeCanopyMesh = new THREE.InstancedMesh(
+    unitSphereGeo,
+    mats.treeCanopy,
+    treeLocations.length,
+  );
+  const treeCanopyAccentMesh = new THREE.InstancedMesh(
+    unitSphereGeo,
+    mats.treeCanopyAccent,
+    treeLocations.length,
+  );
+
+  treeLocations.forEach((t, i) => {
+    // Raised Planter Box
+    setSurfaceMatrix(tempMatrix, t.s / RADIUS, t.y, 0, 1.6, 1.6, 0.5);
+    treePlanterMesh.setMatrixAt(i, tempMatrix);
+
+    // Planter soil bed
+    setSurfaceMatrix(tempMatrix, t.s / RADIUS, t.y, 0.48, 1.45, 1.45, 0.08);
+    treeEarthMesh.setMatrixAt(i, tempMatrix);
+
+    // Tree trunk
+    setSurfaceMatrix(tempMatrix, t.s / RADIUS, t.y, 0.5, 0.36, 0.36, 2.6);
+    treeTrunkMesh.setMatrixAt(i, tempMatrix);
+
+    // Lower canopy
+    setSurfaceMatrix(tempMatrix, t.s / RADIUS, t.y, 2.5, 2.8, 2.8, 2.6);
+    treeCanopyMesh.setMatrixAt(i, tempMatrix);
+
+    // Upper canopy
+    setSurfaceMatrix(tempMatrix, t.s / RADIUS, t.y, 3.8, 2.0, 2.0, 2.0);
+    treeCanopyAccentMesh.setMatrixAt(i, tempMatrix);
+
+    obstacles.push({
+      theta: t.s / RADIUS,
+      y: t.y,
+      width: 1.6,
+      depth: 1.6,
+      height: 0.5,
+      base: 0,
+    });
+    obstacles.push({
+      theta: t.s / RADIUS,
+      y: t.y,
+      width: 0.36,
+      depth: 0.36,
+      height: 2.6,
+      base: 0.5,
+    });
+  });
+
+  treePlanterMesh.instanceMatrix.needsUpdate = true;
+  treeEarthMesh.instanceMatrix.needsUpdate = true;
+  treeTrunkMesh.instanceMatrix.needsUpdate = true;
+  treeCanopyMesh.instanceMatrix.needsUpdate = true;
+  treeCanopyAccentMesh.instanceMatrix.needsUpdate = true;
+
+  furnitureGroup.add(treePlanterMesh);
+  furnitureGroup.add(treeEarthMesh);
+  furnitureGroup.add(treeTrunkMesh);
+  furnitureGroup.add(treeCanopyMesh);
+  furnitureGroup.add(treeCanopyAccentMesh);
+
+  // --- Civic Lighting Columns ---
+  const lampLocations = [
+    // Promenade South
+    { s: -6.8, y: -76 },
+    { s: 6.8, y: -76 },
+    { s: -6.8, y: -48 },
+    { s: 6.8, y: -48 },
+    { s: -6.8, y: -20 },
+    { s: 6.8, y: -20 },
+
+    // Plaza Corners
+    { s: -20.0, y: -8 },
+    { s: 20.0, y: -8 },
+
+    // Promenade Mid
+    { s: -6.8, y: 8 },
+    { s: 6.8, y: 8 },
+    { s: -6.8, y: 40 },
+    { s: 6.8, y: 40 },
+
+    // Skywalk Lift Street Approach
+    { s: 13.0, y: 62 },
+    { s: 23.0, y: 62 },
+
+    // Promenade North
+    { s: -6.8, y: 82 },
+    { s: 6.8, y: 82 },
+    { s: -6.8, y: 118 },
+    { s: 6.8, y: 118 },
+
+    // East Route
+    { s: 24.0, y: 9.5 },
+    { s: 42.0, y: 9.5 },
+    { s: 44.0, y: 14.0 },
+  ];
+
+  const lampPostMesh = new THREE.InstancedMesh(
+    unitBoxGeo,
+    mats.tealMetal,
+    lampLocations.length,
+  );
+  const lampLuminaireMesh = new THREE.InstancedMesh(
+    unitBoxGeo,
+    mats.lampLuminaire,
+    lampLocations.length,
+  );
+
+  lampLocations.forEach((l, i) => {
+    // Metal column
+    setSurfaceMatrix(tempMatrix, l.s / RADIUS, l.y, 0, 0.3, 0.3, 4.0);
+    lampPostMesh.setMatrixAt(i, tempMatrix);
+
+    // Luminaire top
+    setSurfaceMatrix(tempMatrix, l.s / RADIUS, l.y, 4.0, 0.55, 0.55, 0.55);
+    lampLuminaireMesh.setMatrixAt(i, tempMatrix);
+
+    obstacles.push({
+      theta: l.s / RADIUS,
+      y: l.y,
+      width: 0.35,
+      depth: 0.35,
+      height: 4.5,
+      base: 0,
+    });
+  });
+
+  lampPostMesh.instanceMatrix.needsUpdate = true;
+  lampLuminaireMesh.instanceMatrix.needsUpdate = true;
+  furnitureGroup.add(lampPostMesh);
+  furnitureGroup.add(lampLuminaireMesh);
+
+  return { obstacles };
+}

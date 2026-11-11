@@ -1,0 +1,206 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <meta name="theme-color" content="#101e25" />
+    <title>New Dawn · Cylinder Explorer</title>
+  </head>
+  <body>
+    <main id="app">
+      <div id="viewport" aria-label="Three-dimensional cylinder habitat"></div>
+      <div class="vignette" aria-hidden="true"></div>
+      <header class="topbar">
+        <div class="brand">
+          <span class="brand-mark">◌</span>
+          <div>NEW DAWN<span class="eyebrow">CYLINDER EXPLORER / 03</span></div>
+        </div>
+        <div class="status">
+          <span class="status-dot"></span>
+          <span id="area">MERIDIAN APPROACH</span>
+          <span class="divider">/</span> <span id="gravity">1.00 G</span>
+        </div>
+        <div class="top-controls">
+          <button
+            id="sound"
+            class="glass-button"
+            aria-pressed="false"
+            aria-label="Mute sound"
+            title="Sound starts when you enter. M toggles mute."
+          >
+            SOUND ON
+          </button>
+          <button id="pause" class="glass-button" hidden>ESC · PAUSE</button>
+        </div>
+      </header>
+      <section id="intro" class="overlay" aria-labelledby="intro-title">
+        <div class="intro-card">
+          <p class="eyebrow accent">MERIDIAN CIVIC DISTRICT</p>
+          <h1 id="intro-title">A city.<br />Under another world.</h1>
+          <p class="intro-copy">
+            Meet Meridian's residents and its caretaker, Mara Voss. Help restart
+            the Skywalk ventilation unit, then explore the city and Greenway's
+            farms.
+          </p>
+          <button id="start" class="primary-button">
+            Enter Meridian <span>↗</span>
+          </button>
+          <button id="start-greenway" class="text-button" disabled>
+            Or start in Greenway Commons
+          </button>
+          <div class="control-grid">
+            <span><kbd>W A S D</kbd> Walk</span
+            ><span><kbd>MOUSE</kbd> Look</span
+            ><span><kbd>SHIFT</kbd> Sprint</span
+            ><span><kbd>SPACE</kbd> Jump</span>
+            <span><kbd>E</kbd> Interact</span>
+            <span><kbd>M</kbd> Mute sound</span>
+            <span><kbd>PGUP / PGDN</kbd> Scroll jobs</span>
+          </div>
+          <p class="fine-print">
+            Sound starts on entry. No mouse lock? Drag to look or use the arrow
+            keys.
+          </p>
+          <p id="loading" class="loading" role="status">Preparing habitat…</p>
+        </div>
+        <div class="intro-aside">
+          <span class="eyebrow">TWO NEIGHBORHOODS / ONE WORLD</span>
+          <strong>MERIDIAN + GREENWAY</strong>
+          <span>City · Skyroom · Farms</span>
+          <span>360 m cylinder / simulated gravity</span>
+        </div>
+      </section>
+      <section
+        id="pause-panel"
+        class="overlay pause-overlay"
+        hidden
+        aria-labelledby="pause-title"
+      >
+        <div class="intro-card">
+          <p class="eyebrow accent">TAKE YOUR TIME</p>
+          <h1 id="pause-title">On the inside.</h1>
+          <p class="intro-copy">Your horizon curves all the way around you.</p>
+          <button id="resume" class="primary-button">
+            Resume exploring <span>↗</span></button
+          ><button id="reset" class="text-button">
+            Return to Greenway landing
+          </button>
+          <button id="visit-city" class="text-button">
+            Visit Meridian entrance
+          </button>
+          <button id="new-game" class="text-button">Start a new game</button>
+          <p class="fine-print">
+            WASD · move &nbsp; Shift · sprint &nbsp; Space · jump<br />Mouse /
+            drag / arrows · look &nbsp; E · interact &nbsp; M · mute &nbsp; Esc
+            · pause <br />Wheel / PgUp / PgDn · scroll jobs
+          </p>
+          <p class="fine-print">
+            Discoveries, both jobs, and sound preferences save on this browser.
+          </p>
+        </div>
+      </section>
+      <div id="crosshair" aria-hidden="true" hidden>+</div>
+      <div class="hud-cards">
+        <aside id="mission" class="hud-panel" hidden>
+          <p class="eyebrow">HABITAT WALK <span id="progress">0 / 6</span></p>
+          <h2>Two neighborhoods.</h2>
+          <p class="mission-copy">Discover the city and the farm edge.</p>
+          <ol id="landmarks"></ol>
+          <p id="objective" class="objective">
+            Follow the promenade into Meridian plaza.
+          </p>
+        </aside>
+        <div class="job-stack">
+          <p id="job-scroll-hint" class="jobs-scroll-hint" hidden>
+            JOBS · WHEEL / PGUP / PGDN
+          </p>
+          <aside
+            id="maintenance"
+            class="job-panel"
+            hidden
+            aria-labelledby="maintenance-title"
+          >
+            <p class="eyebrow">
+              CIVIC MAINTENANCE <span id="maintenance-progress">0 / 3</span>
+            </p>
+            <h2 id="maintenance-title">A breath of fresh air.</h2>
+            <p id="maintenance-objective" class="job-copy">
+              Meet Mara Voss on the west side of Meridian plaza.
+            </p>
+            <div class="job-destination">
+              <span id="maintenance-status">MEET THE CARETAKER</span>
+              <strong id="maintenance-distance"></strong>
+            </div>
+            <p class="job-help">
+              <kbd>E</kbd> Talk or service when you're nearby.
+            </p>
+          </aside>
+          <aside id="job" class="job-panel" hidden aria-labelledby="job-title">
+            <p class="eyebrow">
+              NEIGHBORHOOD JOB <span id="job-progress">0 / 2</span>
+            </p>
+            <h2 id="job-title">A small favor.</h2>
+            <p id="job-objective" class="job-copy">
+              Collect the seed crate just east of the market square.
+            </p>
+            <div class="job-destination">
+              <span id="job-status">READY FOR PICKUP</span
+              ><strong id="job-distance"></strong>
+            </div>
+            <p class="job-help"><kbd>E</kbd> Interact when you’re nearby.</p>
+          </aside>
+        </div>
+      </div>
+      <div id="interaction" class="interaction-prompt" hidden role="status">
+        <kbd>E</kbd><span id="interaction-label"></span>
+      </div>
+      <div id="inventory" class="inventory" hidden>
+        <span class="inventory-dot"></span><span id="inventory-label"></span>
+      </div>
+      <aside id="telemetry" class="telemetry" hidden>
+        <span class="eyebrow"
+          >LOCAL POSITION
+          <span id="height" class="float-right" title="Height above the hull"
+            >0.0 m UP</span
+          ></span
+        >
+        <div>
+          <strong id="position">000° / 000 m</strong
+          ><span id="motion">ON FOOT</span>
+        </div>
+        <div class="track"><span id="track-position"></span></div>
+        <span class="fine-print"
+          >ENDCAP A <span class="float-right">ENDCAP B</span></span
+        >
+      </aside>
+      <div id="toast" class="toast" role="status" hidden></div>
+      <aside
+        id="dialogue"
+        class="dialogue-panel"
+        hidden
+        role="status"
+        aria-live="polite"
+      >
+        <p class="eyebrow">CIVIC CARETAKER</p>
+        <h2 id="dialogue-name"></h2>
+        <p id="dialogue-text"></p>
+        <span class="fine-print">E · talk again. Walk away to close.</span>
+      </aside>
+      <footer>
+        <span>O’NEILL CYLINDER · INTERACTIVE STUDY</span>
+        <span id="save-status" role="status" aria-live="polite"
+          >LOCAL AUTOSAVE</span
+        >
+        <span id="footer-right">LOOK UP. THERE IS NO SKY.</span>
+      </footer>
+      <section id="error" class="error-panel" hidden role="alert">
+        <h2>Couldn’t start the habitat.</h2>
+        <p id="error-message"></p>
+        <p>
+          Try an updated desktop browser with hardware acceleration enabled.
+        </p>
+      </section>
+    </main>
+    <script type="module" src="/src/main.js"></script>
+  </body>
+</html>
