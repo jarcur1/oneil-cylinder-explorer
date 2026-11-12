@@ -1,5 +1,24 @@
 import { RADIUS } from "./habitat.js";
 import { SUNLINE_PHASES, ENDCAP_HUBS, SUNLINE_PANEL } from "./sunline-layout.js";
+import { DISTRICT_NAME } from "./district-layout.js";
+
+const DISTRICT_ONLINE_STATUS = Object.freeze({
+  name: DISTRICT_NAME,
+  online: true,
+  status: "DAYLIGHT ONLINE",
+});
+
+const DISTRICT_EMERGENCY_STATUS = Object.freeze({
+  name: DISTRICT_NAME,
+  online: false,
+  status: "EMERGENCY LIGHTING",
+});
+
+export function getDistrictStatusForPhase(phase) {
+  return phase === "available" || phase === "complete"
+    ? DISTRICT_ONLINE_STATUS
+    : DISTRICT_EMERGENCY_STATUS;
+}
 
 function wrappedDeltaTheta(t1, t2) {
   return Math.atan2(Math.sin(t1 - t2), Math.cos(t1 - t2));
@@ -71,16 +90,21 @@ export function createSunlineState(initialPhase = "available") {
     distance: 0,
     progress: "0 / 3",
     status: "",
+    districtStatus: DISTRICT_ONLINE_STATUS,
   };
 
   function getPhase() {
     return phase;
   }
 
+  function getDistrictStatus() {
+    return getDistrictStatusForPhase(phase);
+  }
+
   function getView(playerState = null) {
     viewResult.phase = phase;
     viewResult.title = "Sunline module SL-02";
-
+    viewResult.districtStatus = getDistrictStatus();
     const eligibleConsoleA = isTargetEligible(
       playerState,
       ENDCAP_HUBS[0].control,
@@ -101,7 +125,7 @@ export function createSunlineState(initialPhase = "available") {
     if (phase === "available") {
       const target = getNearestHubControl(playerState);
       viewResult.objective =
-        "Visit an endcap isolation console to begin scheduled maintenance on module SL-02.";
+        "Visit an endcap isolation console to service SL-02 (feeds Greenway Commons).";
       viewResult.target = target;
       viewResult.distance = playerState
         ? calcViewDistance(playerState, target)
@@ -118,7 +142,7 @@ export function createSunlineState(initialPhase = "available") {
       }
     } else if (phase === "isolated") {
       viewResult.objective =
-        "Board the maintenance trolley (W/S drive/reverse) to module SL-02. A replacement emitter is secured aboard.";
+        "Greenway Commons is on emergency lighting. Board the trolley (W/S) to replace SL-02's emitter.";
       viewResult.target = SUNLINE_PANEL;
       viewResult.distance = playerState
         ? calcViewDistance(playerState, SUNLINE_PANEL)
@@ -136,7 +160,7 @@ export function createSunlineState(initialPhase = "available") {
     } else if (phase === "replaced") {
       const target = getNearestHubControl(playerState);
       viewResult.objective =
-        "Return to an endcap isolation console to restore power coupling to module SL-02.";
+        "Return to an endcap isolation console to restore SL-02 power and Greenway Commons daylight.";
       viewResult.target = target;
       viewResult.distance = playerState
         ? calcViewDistance(playerState, target)
@@ -154,7 +178,7 @@ export function createSunlineState(initialPhase = "available") {
     } else {
       // complete
       viewResult.objective =
-        "Sunline module SL-02 serviced and online. Axial light array is nominal.";
+        "Sunline module SL-02 serviced and online. Greenway Commons daylight is nominal.";
       viewResult.target = null;
       viewResult.distance = 0;
       viewResult.progress = "3 / 3";
@@ -199,14 +223,14 @@ export function createSunlineState(initialPhase = "available") {
         phase = "isolated";
         return {
           message:
-            "Module SL-02 isolated. Axial section dark; board the trolley to replace the emitter.",
+            "Module SL-02 isolated. Greenway Commons switched to emergency lighting; board the trolley to replace the emitter.",
           changed: true,
         };
       }
       if (phase === "isolated") {
         return {
           message:
-            "Module SL-02 is isolated. Board the trolley and travel to SL-02 to replace the emitter.",
+            "Module SL-02 is isolated; Greenway Commons is on emergency lighting. Board the trolley and travel to SL-02 to replace the emitter.",
           changed: false,
         };
       }
@@ -214,14 +238,14 @@ export function createSunlineState(initialPhase = "available") {
         phase = "complete";
         return {
           message:
-            "Power coupling restored to module SL-02. Sunline emitter array nominal!",
+            "Power coupling restored to module SL-02. Greenway Commons daylight online; sunline emitter array nominal!",
           changed: true,
         };
       }
       if (phase === "complete") {
         return {
           message:
-            "Sunline telemetry nominal. All emitter modules online and synchronized.",
+            "Sunline telemetry nominal. Greenway Commons daylight online; all emitter modules synchronized.",
           changed: false,
         };
       }
@@ -231,7 +255,7 @@ export function createSunlineState(initialPhase = "available") {
       if (phase === "available") {
         return {
           message:
-            "Module SL-02 is energized and online. Isolate from an endcap console before servicing.",
+            "Module SL-02 is energized and feeds Greenway Commons. Isolate from an endcap console before servicing.",
           changed: false,
         };
       }
@@ -239,21 +263,21 @@ export function createSunlineState(initialPhase = "available") {
         phase = "replaced";
         return {
           message:
-            "Depleted emitter replaced. Return to an endcap console to restore power coupling.",
+            "Depleted emitter replaced. Return to an endcap console to restore power coupling and Greenway Commons daylight.",
           changed: true,
         };
       }
       if (phase === "replaced") {
         return {
           message:
-            "Replacement emitter installed. Return to an endcap console to restore power coupling.",
+            "Replacement emitter installed. Return to an endcap console to restore power coupling and Greenway Commons daylight.",
           changed: false,
         };
       }
       if (phase === "complete") {
         return {
           message:
-            "Module SL-02 emitter array operating at peak output.",
+            "Module SL-02 emitter array operating at peak output; Greenway Commons daylight online.",
           changed: false,
         };
       }
@@ -264,6 +288,7 @@ export function createSunlineState(initialPhase = "available") {
 
   return {
     getPhase,
+    getDistrictStatus,
     getView,
     interact,
   };

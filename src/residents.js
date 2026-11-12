@@ -720,6 +720,7 @@ const RESIDENT_CONFIGS = [
   {
     id: "resident-square",
     role: "Market Merchant",
+    name: "Nia Sen",
     routeKey: "square",
     speed: RESIDENT_ROUTES.square.speed,
     initialDist: 6.2,
@@ -1258,6 +1259,29 @@ function buildResident(cfg, residentsGroup) {
   };
 }
 
+const NIA_REACTION_RANGE = 3;
+const NIA_HEIGHT_TOLERANCE = 0.4;
+const NIA_SPEAKER = "Nia Sen";
+const NIA_PROMPT = "Speak with Nia Sen";
+const NIA_DIALOGUES = Object.freeze({
+  available: Object.freeze({
+    speaker: NIA_SPEAKER,
+    text: "Market traffic is steady under full daylight. Word from the endcap is they're scheduling work on sunline module SL-02 soon, so I'm keeping the stall lanterns ready just in case.",
+  }),
+  isolated: Object.freeze({
+    speaker: NIA_SPEAKER,
+    text: "The sunline overhead just dropped out and Greenway went straight to emergency lighting. Produce stalls are running on backup strips until someone swaps that SL-02 emitter.",
+  }),
+  replaced: Object.freeze({
+    speaker: NIA_SPEAKER,
+    text: "Still under emergency lamps down here in the square. Word is the new emitter is seated up on the spine, so we're waiting on an endcap console to bring daylight back online.",
+  }),
+  complete: Object.freeze({
+    speaker: NIA_SPEAKER,
+    text: "Full daylight is back over Greenway Commons! The market feels alive again with SL-02 online—thank you for restoring our sun.",
+  }),
+});
+
 // -----------------------------------------------------------------------------
 // Primary Export: createResidents
 // -----------------------------------------------------------------------------
@@ -1269,6 +1293,14 @@ export function createResidents(parent) {
   const residents = RESIDENT_CONFIGS.map((cfg) =>
     buildResident(cfg, residentsGroup),
   );
+  const nia = residents.find((r) => r.cfg.id === "resident-square") || null;
+  const reactionTarget = { s: 0, y: 0, height: 0 };
+  const reactionView = {
+    prompt: NIA_PROMPT,
+    dialogue: NIA_DIALOGUES.available,
+    target: reactionTarget,
+  };
+
 
   function update(dt, _elapsed) {
     // Clamp delta time to avoid large frame skips on tab switch / lag spikes
@@ -1417,13 +1449,51 @@ export function createResidents(parent) {
       res.body.position.z = Math.abs(swing) * 0.035 * gw;
       res.torso.rotation.z = swing * 0.04 * gw;
     }
+    if (nia) {
+      reactionTarget.s = nia.sampleState.s;
+      reactionTarget.y = nia.sampleState.y;
+      reactionTarget.height = nia.height;
+    }
   }
 
   // Initial placement and pose: update(0, 0) immediately places all residents
   update(0, 0);
+  function getReaction(playerState, sunlinePhase = "available") {
+    if (!nia || !playerState || !playerState.grounded) return null;
+    if (playerState.traversalMode !== "walk") return null;
+
+    const targetS = nia.sampleState.s;
+    const targetY = nia.sampleState.y;
+    const targetHeight = nia.height;
+    reactionTarget.s = targetS;
+    reactionTarget.y = targetY;
+    reactionTarget.height = targetHeight;
+
+    if (!(Math.abs(playerState.height - targetHeight) <= NIA_HEIGHT_TOLERANCE)) {
+      return null;
+    }
+
+    const targetTheta = targetS / RADIUS;
+    const dTheta = Math.atan2(
+      Math.sin(playerState.theta - targetTheta),
+      Math.cos(playerState.theta - targetTheta),
+    );
+    const physicalRadius = Math.max(1, RADIUS - targetHeight);
+    const dist = Math.hypot(
+      dTheta * physicalRadius,
+      playerState.y - targetY,
+    );
+    if (!(dist <= NIA_REACTION_RANGE)) return null;
+
+    reactionView.dialogue =
+      NIA_DIALOGUES[sunlinePhase] || NIA_DIALOGUES.available;
+    return reactionView;
+  }
+
 
   return {
     update,
     residents,
+    getReaction,
   };
 }

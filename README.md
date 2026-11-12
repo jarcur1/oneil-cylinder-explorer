@@ -1,6 +1,6 @@
 # New Dawn — Cylinder Explorer
 
-A first-person browser game inside an O’Neill-inspired cylinder. Start at **Endcap A**, take a radial lift to a low-gravity maintenance hub, and ride an **820 m axial service trolley** to repair part of the habitat’s artificial sunline. Explore **Meridian Civic District**, its 42 m Skyroom, public Skywalk, and enclosed service level 8 m beneath the living surface. The promenade leads to **Greenway Commons**, with shops, a market, greenhouse, farms, and an orchard overlook. Nine residents walk the neighborhoods; discoveries, three jobs, and mute preference save locally. Built with vanilla JavaScript, Three.js, and Vite; no account, API keys, or external art downloads.
+A first-person browser game inside an O’Neill-inspired cylinder. Start at **Endcap A**, take a radial lift to a low-gravity maintenance hub, and ride an **820 m axial service trolley** to repair part of the habitat’s artificial sunline. Isolating SL-02 dims **Greenway Commons** to emergency lighting; restore it to bring daylight back and hear the market merchant’s response. Explore **Meridian Civic District**, its 42 m Skyroom, public Skywalk, and enclosed service level 8 m beneath the living surface. Nine residents walk the neighborhoods; discoveries, three jobs, and mute preference save locally. Built with vanilla JavaScript, Three.js, and Vite; no account, API keys, or external art downloads.
 
 ## Run
 
@@ -48,7 +48,15 @@ The **Sunline Engineering** card tracks a three-step job:
 
 The trolley travels the full **820 m** between Endcaps A and B. Looking does not steer; strafe, sprint, and jump do not detach you from the rail. Disembarking is possible only at the end docks. Secured hub bounds, corridor walls, and a continuous overhead roof keep the route on the habitable side of the axis. Transfers use the existing short fade rather than animated lift cabins.
 
-The artificial axial luminaire has **nine visual sections** spanning 892 m. Only the assigned SL-02 section goes dark while isolated or awaiting restoration; its casing remains visible, the other eight sections stay lit, and the spare/installed emitter props follow the job. Habitat daylight and cached shadows remain fixed approximations, not a photometric or electrical simulation. Hub consoles are interactive; other machinery labels are scenery.
+The artificial axial luminaire has **nine visual sections** spanning 892 m. Only the assigned SL-02 section goes dark while isolated or awaiting restoration; its casing remains visible, the other eight sections stay lit, and the spare/installed emitter props follow the job. Both endcap console faces and the Sunline Engineering card report **Greenway Commons · DAYLIGHT ONLINE** or **EMERGENCY LIGHTING**. Other machinery labels remain scenery.
+
+### Greenway feels the repair
+
+SL-02 is the logical daylight feed for **Greenway Commons**. Isolation fades its surface daylight down over **1.2 seconds**, leaving the existing warm lamps, glowing signs, and windows visible. Installing the emitter alone does not restore daylight; the endcap console completes the circuit. Restoration fades daylight back in. The effect follows world-space district bounds, including terrain, instanced scenery, moving residents, and carried cargo, with a soft boundary. Meridian, the opposite circumference, underground service lighting, and axial hubs are not blacked out. This is an authored lighting consequence, not accurate light transport or electrical simulation.
+
+Find **Nia Sen**, the straw-hatted market merchant in a terracotta shirt, walking around **Market square**. Approach within **3 m** on the living surface and press **E**. She comments on scheduled work, emergency lighting, a replacement awaiting power, and restored daylight. She keeps walking; the conversation follows her current location and closes when you move away, pause, or after 14 seconds. Her response comes from the existing repair phase, with no extra job or save field.
+
+Reloading an isolated or replaced job starts with emergency lighting already applied; completed repairs start in daylight. Existing completed saves remain completed. To demonstrate the whole outage again, use **Start a new game** and confirm the reset of discoveries and all three jobs.
 
 ## Meridian Civic District
 
@@ -94,7 +102,7 @@ Progress belongs to this browser and URL origin, using the existing **`new-dawn.
 
 ## Lighting and sound
 
-Both districts have fixed warm habitat daylight, soft static building shadows, curved contact shading, and cooler distance haze. One 2048 × 2048 sunlight shadow map covers both neighborhoods and is cached after the first frame; residents and animated machinery are excluded from that bake to avoid ghost shadows. Residents use moving soft contact footprints. Four Greenway lights and two tower interior lights add warmth above ground. The service level uses its own cool/amber fixtures and four local lights, without another shadow map. The endcaps and sectional sunline add no lights or shadow maps.
+Both districts normally have warm habitat daylight, soft static building shadows, curved contact shading, and cooler distance haze. Greenway’s SL-02 repair selectively attenuates directional sunlight and ambient/hemisphere fill, not the local point lamps or emissive surfaces. One 2048 × 2048 sunlight shadow map covers both neighborhoods and remains cached across power changes; residents and animated machinery are excluded from that bake to avoid ghost shadows. Residents use moving soft contact footprints. Four Greenway lights and two tower interior lights add warmth above ground. The service level uses its own cool/amber fixtures and four local lights, without another shadow map. The repair consequence adds no lights or shadow maps, and pausing freezes its fade.
 
 Procedural Web Audio supplies quiet ventilation wind, irrigation water near the canal, pump hum near the utility yard and underground water plant, and footsteps while moving on foot. Wind is damped inside enclosed areas; the axial route adds a mechanical ambience using the existing graph. Trolley motion does not trigger walking footsteps. No audio files, microphone access, or external services are used.
 
@@ -124,8 +132,9 @@ The production files are in `dist/`. Serve that folder with an ordinary static w
 - `src/sunline.js` and `src/sunline-state.js`: endcap hubs, sectional luminaire, rail corridor, trolley, emitter props, and three-step maintenance state.
 - `src/civic-primitives.js`: shared curved radial solids and procedural facade textures.
 - `src/atmosphere.js`: static sunlight/shadow cache configuration, local lights, fog, and procedural contact shading.
+- `src/district-lighting.js`: world-space regional daylight attenuation, per-world material/uniform ownership, and pause-safe power transitions; existing point lamps and emissive surfaces stay lit.
 - `src/soundscape.js`: lazy audio graph, location-aware ambience, footsteps, and serialized pause/mute lifecycle.
-- `src/residents.js`: nine walking routes, shared character models, altitude-aware gait and viewpoint dwells, and stationary caretaker Mara.
+- `src/residents.js`: nine walking routes, shared character models, altitude-aware gait, viewpoint dwells, stationary caretaker Mara, and Nia’s phase-aware conversation with a live moving anchor.
 - `src/delivery.js` and `src/delivery-layout.js`: delivery state, station coordinates, prompts, and pickup/carried/received crate props.
 - `src/maintenance-state.js`, `src/maintenance.js`, and `src/maintenance-layout.js`: caretaker conversations, maintenance progression/guards, unit location, fan and indicator visuals.
 - `src/save-game.js`: versioned local progress, discovery filtering, and explicit storage failure/recovery status.
@@ -145,7 +154,7 @@ position = ((radius - h) * sin(theta), y, -(radius - h) * cos(theta))
 up       = (-sin(theta), 0, cos(theta))
 ```
 
-The habitat is deliberately compact: **360 m living-surface diameter × 900 m long**, so curvature is immediately visible. This is a game environment, not an accurate rotating-frame simulation: radius-dependent outward acceleration, mechanically secured axial travel, stationary scenery, fixed approximate daylight, and cached static shadows. There are no Coriolis forces, free-flight angular-momentum effects, orbital mechanics, or crop-growth/economic simulation. Residents are non-solid figures on scripted routes; Mara has a scripted conversation, not dialogue AI. Fans and pumps animate but do not simulate fluid flow or electricity. Glasshouse 01, the tower’s lobby/Skyroom, the service rooms, and the axial maintenance route are accessible; other buildings are exterior-only. Collision uses arc-coordinate prisms, not triangle-level physics. Foliage, beacon supports, and water remain non-solid; city trunks, major equipment, and public railings are solid. Keyboard/mouse only; no touch controls.
+The habitat is deliberately compact: **360 m living-surface diameter × 900 m long**, so curvature is immediately visible. This is a game environment, not an accurate rotating-frame simulation: radius-dependent outward acceleration, mechanically secured axial travel, stationary scenery, approximate regional lighting, and cached static shadows. There are no Coriolis forces, free-flight angular-momentum effects, orbital mechanics, or crop-growth/economic simulation. Residents are non-solid figures on scripted routes; Mara and Nia have scripted conversations, not dialogue AI. Fans and pumps animate but do not simulate fluid flow or electricity. Glasshouse 01, the tower’s lobby/Skyroom, the service rooms, and the axial maintenance route are accessible; other buildings are exterior-only. Collision uses arc-coordinate prisms, not triangle-level physics. Foliage, beacon supports, and water remain non-solid; city trunks, major equipment, and public railings are solid. Keyboard/mouse only; no touch controls.
 
 ## Verification
 
@@ -171,4 +180,8 @@ A genuine older browser save restored six discoveries, a carried seed crate, an 
 
 A temporary actual-world scenario verified both secured hubs, relative-angle seam bounds, both boarding directions, the full rail, continuous floor/roof protection, maintenance ordering and repeat guards, nine-section visibility, approach-sign ray hits, trolley/gate clearance, cargo preservation, and the unchanged one-shadow-light budget. The Node suite and focused low-gravity landing, clamped-teleport, and saved-replacement regressions were exercised; the low-gravity fixture now waits for landing rather than assuming surface-gravity timing. Temporary verification pages are removed before delivery.
 
-`npm run build` succeeds with the existing non-blocking bundle-size warning: **661.50 kB** minified JavaScript, **181.13 kB** gzipped. Performance varies by device and viewpoint.
+The district-power consequence update passes **51 Node tests** and a production Chromium playthrough. Native input exercised Greenway before and during the outage, SL-02 replacement and return travel, restored daylight, Nia’s emergency and thank-you conversations, seed pickup/carrying, and Mara’s existing job acceptance. Isolated, replaced, and completed states restored correctly across reloads; cargo, discoveries, civic progress, and mute remained intact. At **375 × 600**, the conversation and scrolling HUD retain a measured gap of more than 12 pixels rather than assuming a fixed dialogue height. No application browser errors were observed.
+
+An actual-world WebGL scenario checked separate online/offline worlds on one renderer, regional surface dimming, preserved point-lamp illumination, unchanged Meridian/opposite-side/underground pixels, both console approach rays, replacement remaining dark, gradual restoration, zero-delta pause, cached shadows, camera-attached cargo attenuation, and continued irrigation-indicator animation after material installation. The budget remains one shadow light, six surface point lights, and four isolated service lights. Temporary verification pages are removed before delivery.
+
+`npm run build` succeeds with the existing non-blocking bundle-size warning: **669.43 kB** minified JavaScript, **184.18 kB** gzipped. Performance varies by device and viewpoint.

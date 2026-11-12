@@ -1294,7 +1294,7 @@ export function createFarm(parent) {
     flowImpellerMesh.rotation.z += delta * 4.5;
 
     // D. Irrigation Pump Status LED pulsing
-    pumpLedMat.emissiveIntensity = 1.0 + 0.6 * Math.sin(time * 4.2);
+    pumpLedMesh.material.emissiveIntensity = 1.0 + 0.6 * Math.sin(time * 4.2);
   }
 
   return {

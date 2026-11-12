@@ -450,6 +450,15 @@ footer {
   overflow-y: auto;
   scrollbar-width: thin;
 }
+#sunline-district {
+  margin: 12px 0 0;
+  color: #d5f58e;
+  font-size: 10px;
+  line-height: 1.6;
+}
+#sunline-district[data-online="false"] {
+  color: #ffd09c;
+}
 .sunline-controls {
   color: #c4d9d4;
   font-size: 9px;
@@ -707,7 +716,7 @@ footer {
     flex: 0 0 auto;
   }
   .has-dialogue .hud-cards {
-    max-height: calc(100dvh - 360px);
+    max-height: min(calc(100dvh - 190px), var(--dialogue-room));
   }
   .dialogue-panel {
     bottom: 56px;

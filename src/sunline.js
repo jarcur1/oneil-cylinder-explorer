@@ -12,8 +12,9 @@ import {
   SERVICE_MODULE_INDEX,
   SERVICE_MODULE_Y,
   ENDCAP_HUBS,
+  SUNLINE_PHASES,
 } from "./sunline-layout.js";
-import { createSunlineState } from "./sunline-state.js";
+import { createSunlineState, getDistrictStatusForPhase } from "./sunline-state.js";
 
 // Sign creation requires the same real canvas support as the rest of the world.
 function createSignMaterial(text, bgColor = "#152d2b", fgColor = "#f1eddb") {
@@ -42,9 +43,107 @@ function createSignMaterial(text, bgColor = "#152d2b", fgColor = "#f1eddb") {
   });
 }
 
+const CONSOLE_DISPLAY_THEMES = Object.freeze({
+  available: {
+    bg: "#132924",
+    border: "#d7e5ad",
+    headerFg: "#f1eddb",
+    subFg: "#cde3d6",
+    badgeBg: "#14532d",
+    badgeBorder: "#4ade80",
+    badgeFg: "#dcfce7",
+    actionFg: "#fef08a",
+    subLine: "MODULE SL-02: ENERGIZED",
+    actionLine: "[E] ISOLATE MODULE SL-02",
+  },
+  isolated: {
+    bg: "#2b1614",
+    border: "#f59e0b",
+    headerFg: "#fef3c7",
+    subFg: "#fecaca",
+    badgeBg: "#7f1d1d",
+    badgeBorder: "#f87171",
+    badgeFg: "#fef2f2",
+    actionFg: "#fde68a",
+    subLine: "MODULE SL-02: ISOLATED · OFFLINE",
+    actionLine: "[E] INSPECT · SERVICE SL-02 ON TROLLEY",
+  },
+  replaced: {
+    bg: "#281c11",
+    border: "#f59e0b",
+    headerFg: "#fef3c7",
+    subFg: "#fde68a",
+    badgeBg: "#7c2d12",
+    badgeBorder: "#fbbf24",
+    badgeFg: "#fef3c7",
+    actionFg: "#bef264",
+    subLine: "MODULE SL-02: EMITTER REPLACED",
+    actionLine: "[E] RESTORE MODULE SL-02",
+  },
+  complete: {
+    bg: "#102a1f",
+    border: "#4ade80",
+    headerFg: "#f1eddb",
+    subFg: "#bbf7d0",
+    badgeBg: "#14532d",
+    badgeBorder: "#4ade80",
+    badgeFg: "#dcfce7",
+    actionFg: "#e2e8f0",
+    subLine: "MODULE SL-02: ONLINE & NOMINAL",
+    actionLine: "[E] INSPECT ISOLATION CONSOLE",
+  },
+});
+
+function createConsoleSignMaterial(hubLabel, phase, districtStatus) {
+  const theme = CONSOLE_DISPLAY_THEMES[phase] || CONSOLE_DISPLAY_THEMES.available;
+  const canvas = document.createElement("canvas");
+  canvas.width = 1024;
+  canvas.height = 448;
+  const ctx = canvas.getContext("2d");
+  ctx.fillStyle = theme.bg;
+  ctx.fillRect(0, 0, 1024, 448);
+  ctx.strokeStyle = theme.border;
+  ctx.lineWidth = 10;
+  ctx.strokeRect(14, 14, 996, 420);
+  ctx.textAlign = "center";
+  ctx.textBaseline = "middle";
+
+  ctx.fillStyle = theme.headerFg;
+  ctx.font = "bold 42px sans-serif";
+  ctx.fillText(`${hubLabel.toUpperCase()} ISOLATION CONSOLE`, 512, 78, 940);
+
+  ctx.fillStyle = theme.subFg;
+  ctx.font = "bold 36px sans-serif";
+  ctx.fillText(theme.subLine, 512, 148, 940);
+
+  ctx.fillStyle = theme.badgeBg;
+  ctx.fillRect(52, 192, 920, 108);
+  ctx.strokeStyle = theme.badgeBorder;
+  ctx.lineWidth = 6;
+  ctx.strokeRect(52, 192, 920, 108);
+  ctx.fillStyle = theme.badgeFg;
+  ctx.font = "bold 40px sans-serif";
+  ctx.fillText(
+    `${districtStatus.name.toUpperCase()}: ${districtStatus.status}`,
+    512,
+    246,
+    880,
+  );
+
+  ctx.fillStyle = theme.actionFg;
+  ctx.font = "bold 42px sans-serif";
+  ctx.fillText(theme.actionLine, 512, 368, 940);
+
+  const texture = new THREE.CanvasTexture(canvas);
+  texture.colorSpace = THREE.SRGBColorSpace;
+  return new THREE.MeshBasicMaterial({
+    map: texture,
+    side: THREE.FrontSide,
+  });
+}
+
 // Text height follows local cylindrical up; normals face the actual approach.
-function createOrientedSign(parent, text, pos, facing, width = 3.6, height = 0.9, bg = "#152d2b") {
-  const mat = createSignMaterial(text, bg);
+function createOrientedPanel(parent, mat, pos, facing, width = 3.6, height = 0.9) {
   const geo = new THREE.PlaneGeometry(width, height);
   const mesh = new THREE.Mesh(geo, mat);
   mesh.castShadow = false;
@@ -62,6 +161,10 @@ function createOrientedSign(parent, text, pos, facing, width = 3.6, height = 0.9
   return mesh;
 }
 
+function createOrientedSign(parent, text, pos, facing, width = 3.6, height = 0.9, bg = "#152d2b") {
+  return createOrientedPanel(parent, createSignMaterial(text, bg), pos, facing, width, height);
+}
+
 /**
  * Constructs the entire axial Sunline system:
  * - Both endcap maintenance hubs (A & B) with foot-level collision envelopes
@@ -75,6 +178,7 @@ function createOrientedSign(parent, text, pos, facing, width = 3.6, height = 0.9
  * @returns {{
  *   obstacles: Array<object>,
  *   getPhase: () => string,
+ *   getDistrictStatus: () => object,
  *   getView: (playerState?: object) => object,
  *   interact: (playerState: object) => object | null,
  *   setActive: (active: boolean) => void,
@@ -131,6 +235,7 @@ export function createSunline(parent, initialPhase = "available") {
 
   let hubAIndicator = null;
   let hubBIndicator = null;
+  const consoleDisplays = [];
 
   for (const hubData of ENDCAP_HUBS) {
     const isA = hubData.side < 0;
@@ -324,15 +429,24 @@ export function createSunline(parent, initialPhase = "available") {
 
     // Console desk display panel facing -theta (inward toward player approach)
     const consoleDeskPos = surfacePos(consoleTheta - axialAngle(0.62), consoleY, 171.1);
-    createOrientedSign(
+    const consoleSignMats = {};
+    for (const phaseKey of SUNLINE_PHASES) {
+      consoleSignMats[phaseKey] = createConsoleSignMaterial(
+        hubData.label,
+        phaseKey,
+        getDistrictStatusForPhase(phaseKey),
+      );
+    }
+    const consoleDisplayMesh = createOrientedPanel(
       hubSubGroup,
-      `${hubData.label.toUpperCase()} ISOLATION CONSOLE\n[E] CYCLE MODULE SL-02 POWER COUPLING`,
+      consoleSignMats[state.getPhase()],
       consoleDeskPos,
       "west",
       1.5,
       0.65,
-      "#132924",
     );
+    consoleDisplayMesh.name = `${hubPrefix}_console_display`;
+    consoleDisplays.push({ mesh: consoleDisplayMesh, mats: consoleSignMats });
 
     // Interactive console status indicator beacon
     const indicatorGeo = new THREE.BoxGeometry(0.2, 0.2, 0.15);
@@ -958,6 +1072,13 @@ export function createSunline(parent, initialPhase = "available") {
     }
     if (hubAIndicator) hubAIndicator.material = indicatorMat;
     if (hubBIndicator) hubBIndicator.material = indicatorMat;
+    for (let i = 0; i < consoleDisplays.length; i++) {
+      const display = consoleDisplays[i];
+      const nextMat = display.mats[phase];
+      if (nextMat && display.mesh.material !== nextMat) {
+        display.mesh.material = nextMat;
+      }
+    }
   }
 
   // Synchronize initial state visuals
@@ -987,6 +1108,10 @@ export function createSunline(parent, initialPhase = "available") {
     return state.getPhase();
   }
 
+  function getDistrictStatus() {
+    return state.getDistrictStatus();
+  }
+
   function getView(playerState) {
     return state.getView(playerState);
   }
@@ -1002,6 +1127,7 @@ export function createSunline(parent, initialPhase = "available") {
   return {
     obstacles,
     getPhase,
+    getDistrictStatus,
     getView,
     interact,
     setActive,

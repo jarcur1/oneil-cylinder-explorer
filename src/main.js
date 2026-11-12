@@ -58,7 +58,7 @@ try {
     [...DISTRICT_STOPS, ...CITY_STOPS, ...SERVICE_STOPS, ...SUNLINE_STOPS].map((stop) => stop.id),
   );
   const world = createWorld(scene, camera, saved);
-  const { delivery, maintenance, sunline } = world;
+  const { delivery, maintenance, sunline, residents } = world;
   // Cargo remains visible under either lighting set; other world meshes do not.
   for (const child of camera.children)
     child.traverse((node) => node.layers.enable(1));
@@ -120,13 +120,21 @@ try {
     $("app").classList.remove("has-dialogue");
   }
 
-  function showDialogue(dialogue) {
-    activeDialogue = dialogue;
+  function fitDialogueHUD() {
+    if (!activeDialogue || !compactHUD.matches) return;
+    const room = $("dialogue").getBoundingClientRect().top -
+      hudCards.getBoundingClientRect().top - 12;
+    hudCards.style.setProperty("--dialogue-room", `${Math.max(0, Math.floor(room))}px`);
+  }
+
+  function showDialogue(dialogue, target) {
+    activeDialogue = { target };
     dialogueUntil = elapsed + 14;
     $("dialogue-name").textContent = dialogue.speaker;
     $("dialogue-text").textContent = dialogue.text;
     $("dialogue").hidden = false;
     $("app").classList.add("has-dialogue");
+    fitDialogueHUD();
   }
 
   function showToast(message, duration = 4) {
@@ -422,20 +430,24 @@ try {
     $("sunline-distance").textContent = lightJob.target
       ? `${Math.round(lightJob.distance)} m`
       : "ONLINE";
+    const districtStatus = lightJob.districtStatus;
+    $("sunline-district").textContent = `${districtStatus.name} · ${districtStatus.status}`;
+    $("sunline-district").dataset.online = String(districtStatus.online);
+    const reaction = residents.getReaction(state, lightJob.phase);
     if (activeDialogue) {
       const angle = Math.atan2(
-        Math.sin(state.theta - CARETAKER.s / RADIUS),
-        Math.cos(state.theta - CARETAKER.s / RADIUS),
+        Math.sin(state.theta - activeDialogue.target.s / RADIUS),
+        Math.cos(state.theta - activeDialogue.target.s / RADIUS),
       );
       if (
         elapsed >= dialogueUntil ||
-        Math.abs(state.height - CARETAKER.height) > 0.8 ||
-        Math.hypot(angle * (RADIUS - state.height), state.y - CARETAKER.y) > 4.5
+        Math.abs(state.height - activeDialogue.target.height) > 0.8 ||
+        Math.hypot(angle * (RADIUS - activeDialogue.target.height), state.y - activeDialogue.target.y) > 4.5
       )
         closeDialogue();
     }
     const lift = currentLift ? null : getSunlineTransfer(state) || getCityLift(state);
-    const prompt = lightJob.prompt || civicJob.prompt || job.prompt || lift?.prompt;
+    const prompt = lightJob.prompt || civicJob.prompt || job.prompt || reaction?.prompt || lift?.prompt;
     $("interaction").hidden =
       !playing || !prompt || !!currentLift || !!activeDialogue;
     if (prompt && $("interaction-label").textContent !== prompt)
@@ -517,7 +529,7 @@ try {
     const civicResult = maintenance.interact(state);
     if (civicResult) {
       if (civicResult.changed) saveProgress();
-      if (civicResult.dialogue) showDialogue(civicResult.dialogue);
+      if (civicResult.dialogue) showDialogue(civicResult.dialogue, CARETAKER);
       else {
         closeDialogue();
         showToast(civicResult.message, 6);
@@ -532,6 +544,12 @@ try {
       showToast(result.message, 5);
       updateHUD();
     } else {
+      const reaction = residents.getReaction(state, sunline.getPhase());
+      if (reaction) {
+        showDialogue(reaction.dialogue, reaction.target);
+        updateHUD();
+        return;
+      }
       const lift = getSunlineTransfer(playerState) || getCityLift(playerState);
       if (lift) {
         closeDialogue();
@@ -575,6 +593,7 @@ try {
     camera.updateProjectionMatrix();
     renderer.setPixelRatio(Math.min(window.devicePixelRatio, 1.75));
     renderer.setSize(window.innerWidth, window.innerHeight);
+    fitDialogueHUD();
   });
   renderer.domElement.addEventListener("webglcontextlost", (event) => {
     event.preventDefault();

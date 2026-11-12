@@ -7,6 +7,7 @@ import { DISTRICT_STOPS, inDistrict } from "./district-layout.js";
 import { createResidents } from "./residents.js";
 import { createDelivery } from "./delivery.js";
 import { applyAtmosphere } from "./atmosphere.js";
+import { createDistrictLighting } from "./district-lighting.js";
 import { createCityStreets } from "./city-streets.js";
 import { createCityTower } from "./city-tower.js";
 import { CITY_STOPS, inCity } from "./city-layout.js";
@@ -355,7 +356,6 @@ export function createWorld(scene, camera, saved = {}) {
       crystal: crystalMesh,
       ring1: ringMesh1,
       ring2: ringMesh2,
-      crystalMat,
       beamMat,
     });
   }
@@ -817,6 +817,10 @@ export function createWorld(scene, camera, saved = {}) {
     },
   );
   applyAtmosphere(scene, districtGroup, terrainMesh, obstacles);
+  const districtLighting = createDistrictLighting(
+    scene,
+    sunline.getDistrictStatus().online,
+  );
 
   // Return API
   function update(dt, elapsed, playerState) {
@@ -826,6 +830,7 @@ export function createWorld(scene, camera, saved = {}) {
     maintenance.update(dt, elapsed);
     service.update(dt, elapsed);
     sunline.update(dt, elapsed, playerState);
+    districtLighting.update(dt, sunline.getDistrictStatus().online);
     for (let i = 0; i < beaconAnims.length; i++) {
       const b = beaconAnims[i];
       if (b.crystal) {
@@ -839,8 +844,8 @@ export function createWorld(scene, camera, saved = {}) {
         b.ring2.rotation.x = elapsed * -0.7;
         b.ring2.rotation.y = elapsed * 0.5;
       }
-      if (b.crystalMat) {
-        b.crystalMat.emissiveIntensity =
+      if (b.crystal?.material) {
+        b.crystal.material.emissiveIntensity =
           1.1 + 0.35 * Math.sin(elapsed * 2.8 + i * 2.1);
       }
       if (b.beamMat) {
@@ -856,6 +861,7 @@ export function createWorld(scene, camera, saved = {}) {
     delivery,
     maintenance,
     sunline,
+    residents,
     update,
   };
 }
