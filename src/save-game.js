@@ -1,3 +1,5 @@
+import { SUNLINE_PHASES } from "./sunline-layout.js";
+
 /**
  * Persistence store for O'Neill cylinder habitat progress.
  * Manages versioned local storage state, normalization, failure recovery,
@@ -14,11 +16,13 @@ const VALID_MAINTENANCE_PHASES = new Set([
   "repaired",
   "complete",
 ]);
+const VALID_SUNLINE_PHASES = new Set(SUNLINE_PHASES);
 const KNOWN_SCHEMA_KEYS = new Set([
   "version",
   "discoveries",
   "deliveryPhase",
   "maintenancePhase",
+  "sunlinePhase",
   "muted",
 ]);
 
@@ -29,6 +33,7 @@ const KNOWN_SCHEMA_KEYS = new Set([
  *   discoveries: string[],
  *   deliveryPhase: "available",
  *   maintenancePhase: "available",
+ *   sunlinePhase: "available",
  *   muted: false,
  * }}
  */
@@ -37,6 +42,7 @@ function createDefaultState() {
     discoveries: [],
     deliveryPhase: "available",
     maintenancePhase: "available",
+    sunlinePhase: "available",
     muted: false,
   };
 }
@@ -50,6 +56,7 @@ function createDefaultState() {
  *     discoveries: string[],
  *     deliveryPhase: "available" | "carrying" | "complete",
  *     maintenancePhase: "available" | "assigned" | "repaired" | "complete",
+ *     sunlinePhase: "available" | "isolated" | "replaced" | "complete",
  *     muted: boolean,
  *   },
  *   save: (state: object) => boolean,
@@ -99,8 +106,9 @@ export function createSaveStore(storageProvider = () => window.localStorage) {
    * @returns {{
    *   discoveries: string[],
    *   deliveryPhase: "available" | "carrying" | "complete",
-   *   maintenancePhase: "available" | "assigned" | "repaired" | "complete",
-   *   muted: boolean,
+ *   maintenancePhase: "available" | "assigned" | "repaired" | "complete",
+ *   sunlinePhase: "available" | "isolated" | "replaced" | "complete",
+ *   muted: boolean,
    * }}
    */
   function load(knownDiscoveryIds = null) {
@@ -198,6 +206,18 @@ export function createSaveStore(storageProvider = () => window.localStorage) {
       needsRecovery = true;
     }
 
+    // Sunline phase normalization:
+    // Optional additive sunlinePhase: missing in old v1 defaults to "available" without recovery;
+    // invalid present value recovers to "available" with recovered = true.
+    let sunlinePhase = "available";
+    if (parsed.sunlinePhase === undefined) {
+      sunlinePhase = "available";
+    } else if (VALID_SUNLINE_PHASES.has(parsed.sunlinePhase)) {
+      sunlinePhase = parsed.sunlinePhase;
+    } else {
+      sunlinePhase = "available";
+      needsRecovery = true;
+    }
     // Muted normalization
     let muted = false;
     if (typeof parsed.muted === "boolean") {
@@ -220,6 +240,7 @@ export function createSaveStore(storageProvider = () => window.localStorage) {
       discoveries,
       deliveryPhase,
       maintenancePhase,
+      sunlinePhase,
       muted,
     };
   }
@@ -258,6 +279,10 @@ export function createSaveStore(storageProvider = () => window.localStorage) {
       ? state.maintenancePhase
       : "available";
 
+    const sunlinePhase = VALID_SUNLINE_PHASES.has(state?.sunlinePhase)
+      ? state.sunlinePhase
+      : "available";
+
     const muted = Boolean(state?.muted);
 
     const record = {
@@ -265,6 +290,7 @@ export function createSaveStore(storageProvider = () => window.localStorage) {
       discoveries,
       deliveryPhase,
       maintenancePhase,
+      sunlinePhase,
       muted,
     };
 

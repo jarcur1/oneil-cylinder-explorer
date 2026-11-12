@@ -13,11 +13,11 @@
       <header class="topbar">
         <div class="brand">
           <span class="brand-mark">◌</span>
-          <div>NEW DAWN<span class="eyebrow">CYLINDER EXPLORER / 04</span></div>
+          <div>NEW DAWN<span class="eyebrow">CYLINDER EXPLORER / 05</span></div>
         </div>
         <div class="status">
           <span class="status-dot"></span>
-          <span id="area">MERIDIAN APPROACH</span>
+          <span id="area">ENDCAP A · RIM ACCESS</span>
           <span class="divider">/</span> <span id="gravity">1.000 G</span>
         </div>
         <div class="top-controls">
@@ -35,15 +35,18 @@
       </header>
       <section id="intro" class="overlay" aria-labelledby="intro-title">
         <div class="intro-card">
-          <p class="eyebrow accent">MERIDIAN CIVIC DISTRICT</p>
-          <h1 id="intro-title">A city.<br />And what keeps it alive.</h1>
+          <p class="eyebrow accent">SUNLINE MAINTENANCE</p>
+          <h1 id="intro-title">A light.<br />Worth looking after.</h1>
           <p class="intro-copy">
-            Enter the service lift southwest of Meridian plaza. Eight metres
-            below the living surface, follow the water pipes and power lines
-            through the city's working infrastructure.
+            Take the endcap lift toward the axis. Secure your magnetic boots,
+            board the maintenance trolley, and service one sunline module
+            while the rest of the habitat stays lit.
           </p>
           <button id="start" class="primary-button">
-            Enter Meridian <span>↗</span>
+            Enter Endcap A <span>↗</span>
+          </button>
+          <button id="start-city" class="text-button" disabled>
+            Or visit Meridian
           </button>
           <button id="start-greenway" class="text-button" disabled>
             Or start in Greenway Commons
@@ -56,6 +59,7 @@
             <span><kbd>E</kbd> Interact</span>
             <span><kbd>M</kbd> Mute sound</span>
             <span><kbd>PGUP / PGDN</kbd> Scroll jobs</span>
+            <span><kbd>W / S</kbd> Trolley drive / reverse</span>
           </div>
           <p class="fine-print">
             Sound starts on entry. No mouse lock? Drag to look or use the arrow
@@ -64,9 +68,9 @@
           <p id="loading" class="loading" role="status">Preparing habitat…</p>
         </div>
         <div class="intro-aside">
-          <span class="eyebrow">TWO NEIGHBORHOODS / ONE WORLD</span>
-          <strong>MERIDIAN + GREENWAY</strong>
-          <span>City · Service Level · Farms</span>
+          <span class="eyebrow">LIVING SURFACE / SERVICE SPINE</span>
+          <strong>ENDCAP A ↔ ENDCAP B</strong>
+          <span>Sunline · City · Farms</span>
           <span>360 m cylinder / radius-dependent gravity</span>
         </div>
       </section>
@@ -88,14 +92,18 @@
           <button id="visit-city" class="text-button">
             Visit Meridian entrance
           </button>
+          <button id="visit-endcap" class="text-button">
+            Visit Endcap A rim access
+          </button>
           <button id="new-game" class="text-button">Start a new game</button>
           <p class="fine-print">
             WASD · move &nbsp; Shift · sprint &nbsp; Space · jump<br />Mouse /
             drag / arrows · look &nbsp; E · interact &nbsp; M · mute &nbsp; Esc
-            · pause <br />Wheel / PgUp / PgDn · scroll jobs
+            · pause <br />Trolley: W/S · drive/reverse · E · dock/service
+            <br />Wheel / PgUp / PgDn · scroll jobs
           </p>
           <p class="fine-print">
-            Discoveries, both jobs, and sound preferences save on this browser.
+            Discoveries, all three jobs, and sound preferences save on this browser.
           </p>
         </div>
       </section>
@@ -103,18 +111,32 @@
       <div id="compact-physics" class="compact-physics" hidden></div>
       <div class="hud-cards">
         <aside id="mission" class="hud-panel" hidden>
-          <p class="eyebrow">HABITAT WALK <span id="progress">0 / 8</span></p>
-          <h2>Above and below.</h2>
-          <p class="mission-copy">Discover the city, its service deck, and the farm edge.</p>
+          <p class="eyebrow">HABITAT WALK <span id="progress">0 / 11</span></p>
+          <h2>A world that works.</h2>
+          <p class="mission-copy">Explore the neighborhoods and their engineering spine.</p>
           <ol id="landmarks"></ol>
           <p id="objective" class="objective">
-            Follow the promenade into Meridian plaza.
+            Take the radial lift toward the Endcap A maintenance hub.
           </p>
         </aside>
         <div class="job-stack">
           <p id="job-scroll-hint" class="jobs-scroll-hint" hidden>
             JOBS · WHEEL / PGUP / PGDN
           </p>
+          <aside id="sunline-job" class="job-panel" hidden aria-labelledby="sunline-title">
+            <p class="eyebrow">SUNLINE ENGINEERING <span id="sunline-progress">0 / 3</span></p>
+            <h2 id="sunline-title">Keeping the lights on.</h2>
+            <p id="sunline-objective" class="job-copy">
+              Visit an endcap isolation console to begin scheduled maintenance.
+            </p>
+            <div class="job-destination">
+              <span id="sunline-status">SCHEDULED MAINTENANCE</span>
+              <strong id="sunline-distance"></strong>
+            </div>
+            <p id="sunline-controls" class="sunline-controls">
+              E · isolate / replace / restore. Trolley: W/S · drive/reverse.
+            </p>
+          </aside>
           <aside
             id="maintenance"
             class="job-panel"

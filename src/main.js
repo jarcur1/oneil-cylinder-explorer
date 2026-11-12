@@ -14,6 +14,8 @@ import { getCityLift } from "./city-transit.js";
 import { CARETAKER } from "./maintenance-layout.js";
 import { createSaveStore } from "./save-game.js";
 import { SERVICE_STOPS, SERVICE_NAME, inServiceLevel } from "./service-layout.js";
+import { AXIAL_HEIGHT, ENDCAP_ARRIVAL, SUNLINE_STOPS, getAxialHub } from "./sunline-layout.js";
+import { getSunlineTransfer } from "./sunline-transit.js";
 
 const $ = (id) => document.getElementById(id);
 const startButton = $("start");
@@ -53,10 +55,10 @@ try {
   scene.add(camera);
   const saveStore = createSaveStore();
   const saved = saveStore.load(
-    [...DISTRICT_STOPS, ...CITY_STOPS, ...SERVICE_STOPS].map((stop) => stop.id),
+    [...DISTRICT_STOPS, ...CITY_STOPS, ...SERVICE_STOPS, ...SUNLINE_STOPS].map((stop) => stop.id),
   );
   const world = createWorld(scene, camera, saved);
-  const { delivery, maintenance } = world;
+  const { delivery, maintenance, sunline } = world;
   // Cargo remains visible under either lighting set; other world meshes do not.
   for (const child of camera.children)
     child.traverse((node) => node.layers.enable(1));
@@ -98,7 +100,7 @@ try {
           : "LOCAL AUTOSAVE";
     $("save-status").title =
       status.error ||
-      "Discoveries, both jobs, and sound preferences are saved on this browser.";
+      "Discoveries, all three jobs, and sound preferences are saved on this browser.";
   }
 
   function saveProgress() {
@@ -106,6 +108,7 @@ try {
       discoveries: [...found],
       deliveryPhase: delivery.getPhase(),
       maintenancePhase: maintenance.getPhase(),
+      sunlinePhase: sunline.getPhase(),
       muted: soundscape.getState().muted,
     });
     updateSaveStatus();
@@ -179,6 +182,7 @@ try {
     playing = false;
     player.setEnabled(false);
     delivery.setActive(false);
+    sunline.setActive(false);
     closeDialogue();
     void soundscape.setActive(false).then(updateSoundControl);
     $("interaction").hidden = true;
@@ -203,7 +207,15 @@ try {
       else if (everLocked && playing) pause();
     },
   });
-  player.teleport(CITY_ARRIVAL);
+  player.teleport(ENDCAP_ARRIVAL);
+
+  function visitEndcap() {
+    currentLift = null;
+    $("viewport").classList.remove("lift-travel");
+    closeDialogue();
+    player.teleport(ENDCAP_ARRIVAL);
+    enter();
+  }
 
   function visitCity() {
     currentLift = null;
@@ -219,6 +231,7 @@ try {
     everLocked = false;
     player.setEnabled(true);
     delivery.setActive(true);
+    sunline.setActive(true);
     void soundscape.setActive(true).then(updateSoundControl);
     $("intro").hidden = true;
     $("pause-panel").hidden = true;
@@ -226,6 +239,7 @@ try {
     $("crosshair").hidden = false;
     $("mission").hidden = false;
     $("maintenance").hidden = false;
+    $("sunline-job").hidden = false;
     $("telemetry").hidden = false;
     $("compact-physics").hidden = false;
     $("job").hidden = false;
@@ -266,30 +280,53 @@ try {
       )
         .toString()
         .padStart(3, "0")} m`;
-    $("motion").textContent = !state.grounded
-      ? "AIRBORNE"
-      : state.speed > 9
-        ? "SPRINTING"
-        : state.speed > 0.2
-          ? "WALKING"
-          : "ON FOOT";
+    $("motion").textContent = state.traversalMode === "trolley"
+      ? "TROLLEY · ON RAIL"
+      : state.traversalMode === "secured"
+        ? "MAG BOOTS SECURED"
+        : !state.grounded
+          ? "AIRBORNE"
+          : state.speed > 9
+            ? "SPRINTING"
+            : state.speed > 0.2
+              ? "WALKING"
+              : "ON FOOT";
     const heightLabel =
       `${Math.abs(state.height).toFixed(1)} m ${state.height < -0.05 ? "DOWN" : "UP"}`;
     const gravityLabel = `${(state.gravity / GRAVITY).toFixed(3)} G`;
     $("height").textContent = heightLabel;
+    $("gravity").title = state.height >= AXIAL_HEIGHT - 1
+      ? "At-rest apparent gravity. Magnetic boots or the rail supply mechanical support; Coriolis is deferred."
+      : "Apparent gravity at your feet, scaled with radius.";
     $("gravity").textContent = gravityLabel;
     $("compact-physics").textContent = `${gravityLabel} · ${heightLabel}`;
     $("track-position").style.left =
       `${THREE.MathUtils.clamp(((state.y + LENGTH / 2) / LENGTH) * 100, 0, 100)}%`;
     const arc =
       Math.atan2(Math.sin(state.theta), Math.cos(state.theta)) * RADIUS;
-    $("area").textContent = inServiceLevel(arc, state.y, state.height)
-      ? SERVICE_NAME.toUpperCase()
-      : inCity(arc, state.y)
-        ? CITY_NAME.toUpperCase()
-        : inDistrict(arc, state.y)
-          ? DISTRICT_NAME.toUpperCase()
-          : "OUTER PROMENADE";
+    const axialHub = getAxialHub(state);
+    $("area").textContent = axialHub
+      ? `${axialHub.label.toUpperCase()} · MAINTENANCE HUB`
+      : state.traversalMode === "trolley"
+        ? "SUNLINE SERVICE SPINE"
+        : inServiceLevel(arc, state.y, state.height)
+          ? SERVICE_NAME.toUpperCase()
+          : inCity(arc, state.y)
+            ? CITY_NAME.toUpperCase()
+            : inDistrict(arc, state.y)
+              ? DISTRICT_NAME.toUpperCase()
+              : state.height < 2 && state.y < -400
+                ? "ENDCAP A · RIM ACCESS"
+                : state.height < 2 && state.y > 400
+                  ? "ENDCAP B · RIM ACCESS"
+                  : "OUTER PROMENADE";
+    $("footer-right").textContent = state.traversalMode === "trolley"
+      ? "W/S · DRIVE / REVERSE · LOOK FREELY · E · DOCK / SERVICE"
+      : state.traversalMode === "secured"
+        ? "MAG BOOTS · WASD · E · CONTROL / BOARD / LIFT"
+        : state.locked
+          ? "E TO INTERACT · ESC TO PAUSE"
+          : "DRAG / ARROWS TO LOOK · E TO INTERACT";
     let nearest = null;
     let nearestDistance = Infinity;
     let discovered = false;
@@ -298,10 +335,13 @@ try {
         Math.sin(landmark.theta - state.theta),
         Math.cos(landmark.theta - state.theta),
       );
-      const planarDistance = Math.hypot(angle * RADIUS, landmark.y - state.y);
+      const targetHeight = landmark.height ?? landmark.minHeight;
+      const planarDistance = Math.hypot(
+        angle * (RADIUS - targetHeight), landmark.y - state.y,
+      );
       const distance = Math.hypot(
         planarDistance,
-        state.height - landmark.minHeight,
+        state.height - targetHeight,
       );
       if (
         playing &&
@@ -336,7 +376,7 @@ try {
     else {
       $("mission").querySelector("h2").textContent = "A place to call home.";
       $("objective").textContent =
-        "Habitat walk complete. Explore the utility rooms, skywalk, fields, and side streets.";
+        "Habitat walk complete. Explore the endcaps, service spine, utility rooms, and neighborhoods.";
     }
     const job = delivery.getView(state);
     $("job").dataset.phase = job.phase;
@@ -372,6 +412,16 @@ try {
     $("maintenance-distance").textContent = civicJob.target
       ? `${Math.round(civicJob.distance)} m`
       : "THANK YOU";
+    const lightJob = sunline.getView(state);
+    $("sunline-job").dataset.phase = lightJob.phase;
+    $("sunline-job").classList.toggle("complete", lightJob.phase === "complete");
+    $("sunline-title").textContent = lightJob.title;
+    $("sunline-objective").textContent = lightJob.objective;
+    $("sunline-progress").textContent = lightJob.progress;
+    $("sunline-status").textContent = lightJob.status;
+    $("sunline-distance").textContent = lightJob.target
+      ? `${Math.round(lightJob.distance)} m`
+      : "ONLINE";
     if (activeDialogue) {
       const angle = Math.atan2(
         Math.sin(state.theta - CARETAKER.s / RADIUS),
@@ -384,8 +434,8 @@ try {
       )
         closeDialogue();
     }
-    const lift = currentLift ? null : getCityLift(state);
-    const prompt = civicJob.prompt || job.prompt || lift?.prompt;
+    const lift = currentLift ? null : getSunlineTransfer(state) || getCityLift(state);
+    const prompt = lightJob.prompt || civicJob.prompt || job.prompt || lift?.prompt;
     $("interaction").hidden =
       !playing || !prompt || !!currentLift || !!activeDialogue;
     if (prompt && $("interaction-label").textContent !== prompt)
@@ -395,7 +445,9 @@ try {
     if (elapsed >= toastUntil) $("toast").hidden = true;
   }
 
-  startButton.addEventListener("click", visitCity);
+  startButton.addEventListener("click", visitEndcap);
+  $("start-city").addEventListener("click", visitCity);
+  $("visit-endcap").addEventListener("click", visitEndcap);
   $("start-greenway").addEventListener("click", () => {
     player.reset();
     enter();
@@ -414,7 +466,7 @@ try {
   $("new-game").addEventListener("click", () => {
     if (
       !window.confirm(
-        "Start a new game? This clears discoveries and both jobs. Your sound preference is kept.",
+        "Start a new game? This clears discoveries and all three jobs. Your sound preference is kept.",
       )
     )
       return;
@@ -423,6 +475,7 @@ try {
         discoveries: [],
         deliveryPhase: "available",
         maintenancePhase: "available",
+        sunlinePhase: "available",
         muted: soundscape.getState().muted,
       })
     ) {
@@ -453,6 +506,14 @@ try {
       return;
     event.preventDefault();
     const state = player.getState(playerState);
+    const lightResult = sunline.interact(state);
+    if (lightResult) {
+      closeDialogue();
+      if (lightResult.changed) saveProgress();
+      showToast(lightResult.message, 6);
+      updateHUD();
+      return;
+    }
     const civicResult = maintenance.interact(state);
     if (civicResult) {
       if (civicResult.changed) saveProgress();
@@ -471,7 +532,7 @@ try {
       showToast(result.message, 5);
       updateHUD();
     } else {
-      const lift = getCityLift(playerState);
+      const lift = getSunlineTransfer(playerState) || getCityLift(playerState);
       if (lift) {
         closeDialogue();
         currentLift = lift;
@@ -527,9 +588,10 @@ try {
   player.update(0);
   updateHUD();
   updateSaveStatus();
-  world.update(0, elapsed);
+  world.update(0, elapsed, playerState);
   renderer.render(scene, camera);
   startButton.disabled = false;
+  $("start-city").disabled = false;
   $("start-greenway").disabled = false;
   $("loading").textContent =
     "Habitat ready. Your boots are the right way down.";
@@ -537,7 +599,6 @@ try {
     const dt = Math.min(clock.getDelta(), 0.05);
     if (playing) {
       elapsed += dt;
-      world.update(dt, elapsed);
       if (currentLift && !travelMoved && elapsed >= travelAt) {
         player.teleport(currentLift.destination);
         travelMoved = true;
@@ -549,6 +610,7 @@ try {
     }
     player.update(currentLift ? 0 : dt);
     player.getState(playerState);
+    if (playing) world.update(dt, elapsed, playerState);
     if (playing) soundscape.update(dt, playerState);
     camera.layers.set(playerState.height < -1 ? 1 : 0);
     hudTime += dt;

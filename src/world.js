@@ -13,6 +13,8 @@ import { CITY_STOPS, inCity } from "./city-layout.js";
 import { createMaintenance } from "./maintenance.js";
 import { createServiceLevel } from "./service-level.js";
 import { SERVICE_FLOOR, SERVICE_STOPS } from "./service-layout.js";
+import { createSunline } from "./sunline.js";
+import { SUNLINE_STOPS } from "./sunline-layout.js";
 
 // Deterministic PRNG (Mulberry32)
 function createRng(seed = 0x5a17e) {
@@ -782,39 +784,7 @@ export function createWorld(scene, camera, saved = {}) {
     worldGroup.add(ringTorusMesh);
   }
 
-  // 6. Axial Luminous Sunline (central spinal light source)
-  const sunlineCoreGeo = new THREE.CylinderGeometry(
-    1.6,
-    1.6,
-    LENGTH - 8,
-    24,
-    1,
-    false,
-  );
-  const sunlineCoreMat = new THREE.MeshBasicMaterial({
-    color: 0xfff6dc,
-  });
-  const sunlineCore = new THREE.Mesh(sunlineCoreGeo, sunlineCoreMat);
-  worldGroup.add(sunlineCore);
-
-  const sunlineGlowGeo = new THREE.CylinderGeometry(
-    3.6,
-    3.6,
-    LENGTH - 8,
-    24,
-    1,
-    true,
-  );
-  const sunlineGlowMat = new THREE.MeshBasicMaterial({
-    color: 0xffe8ab,
-    transparent: true,
-    opacity: 0.18,
-    side: THREE.DoubleSide,
-    blending: THREE.AdditiveBlending,
-    depthWrite: false,
-  });
-  const sunlineGlow = new THREE.Mesh(sunlineGlowGeo, sunlineGlowMat);
-  worldGroup.add(sunlineGlow);
+  const sunline = createSunline(worldGroup, saved.sunlinePhase);
   const districtGroup = new THREE.Group();
   districtGroup.name = "inhabited_districts";
   worldGroup.add(districtGroup);
@@ -834,6 +804,7 @@ export function createWorld(scene, camera, saved = {}) {
     ...cityTower.obstacles,
     ...maintenance.obstacles,
     ...service.obstacles,
+    ...sunline.obstacles,
     // The living surface is a deck, not the outermost pressure-hull floor.
     // Its underside stays solid above the enclosed service spaces.
     {
@@ -848,12 +819,13 @@ export function createWorld(scene, camera, saved = {}) {
   applyAtmosphere(scene, districtGroup, terrainMesh, obstacles);
 
   // Return API
-  function update(dt, elapsed) {
+  function update(dt, elapsed, playerState) {
     farm.update(dt, elapsed);
     residents.update(dt, elapsed);
     delivery.update(dt, elapsed);
     maintenance.update(dt, elapsed);
     service.update(dt, elapsed);
+    sunline.update(dt, elapsed, playerState);
     for (let i = 0; i < beaconAnims.length; i++) {
       const b = beaconAnims[i];
       if (b.crystal) {
@@ -880,9 +852,10 @@ export function createWorld(scene, camera, saved = {}) {
   return {
     groundHeight: SERVICE_FLOOR,
     obstacles,
-    stops: [...DISTRICT_STOPS, ...CITY_STOPS, ...SERVICE_STOPS],
+    stops: [...DISTRICT_STOPS, ...CITY_STOPS, ...SERVICE_STOPS, ...SUNLINE_STOPS],
     delivery,
     maintenance,
+    sunline,
     update,
   };
 }

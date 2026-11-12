@@ -1,6 +1,8 @@
 import test from "node:test";
 import assert from "node:assert/strict";
 import { SAVE_KEY, createSaveStore } from "../src/save-game.js";
+import { createSunlineState } from "../src/sunline-state.js";
+import { ENDCAP_HUBS, SUNLINE_PANEL } from "../src/sunline-layout.js";
 
 function createMockStorage(initialData = {}) {
   const store = new Map(Object.entries(initialData));
@@ -20,6 +22,7 @@ test("progress and completed jobs survive fresh save-store instances", () => {
     discoveries: ["plaza", "skywalk"],
     deliveryPhase: "carrying",
     maintenancePhase: "repaired",
+    sunlinePhase: "isolated",
     muted: true,
   };
   assert.equal(createSaveStore(() => storage).save(progress), true);
@@ -30,6 +33,7 @@ test("progress and completed jobs survive fresh save-store instances", () => {
     ...restored,
     deliveryPhase: "complete",
     maintenancePhase: "complete",
+    sunlinePhase: "complete",
   };
   assert.equal(reloaded.save(completed), true);
   assert.deepEqual(
@@ -56,6 +60,7 @@ test("unsupported schema version falls back to defaults with recovered=true", ()
     discoveries: [],
     deliveryPhase: "available",
     maintenancePhase: "available",
+    sunlinePhase: "available",
     muted: false,
   });
 
@@ -76,6 +81,7 @@ test("malformed JSON in storage recovers to defaults without crashing", () => {
     discoveries: [],
     deliveryPhase: "available",
     maintenancePhase: "available",
+    sunlinePhase: "available",
     muted: false,
   });
 
@@ -91,6 +97,7 @@ test("a valid JSON null record recovers without crashing startup", () => {
     discoveries: [],
     deliveryPhase: "available",
     maintenancePhase: "available",
+    sunlinePhase: "available",
     muted: false,
   });
   assert.equal(store.getStatus().recovered, true);
@@ -103,6 +110,7 @@ test("invalid phase values and types are normalized with recovered=true", () => 
       discoveries: "invalid-not-array",
       deliveryPhase: "teleporting",
       maintenancePhase: 12345,
+      sunlinePhase: "superluminal",
       muted: "true-as-string",
     }),
   });
@@ -113,6 +121,7 @@ test("invalid phase values and types are normalized with recovered=true", () => 
     discoveries: [],
     deliveryPhase: "available",
     maintenancePhase: "available",
+    sunlinePhase: "available",
     muted: false,
   });
 
@@ -156,6 +165,7 @@ test("storage getter failure is caught safely and exposed in getStatus", () => {
     discoveries: [],
     deliveryPhase: "available",
     maintenancePhase: "available",
+    sunlinePhase: "available",
     muted: false,
   });
   const status = store.getStatus();
@@ -180,6 +190,7 @@ test("storage read exception returns defaults and updates getStatus", () => {
     discoveries: [],
     deliveryPhase: "available",
     maintenancePhase: "available",
+    sunlinePhase: "available",
     muted: false,
   });
 
@@ -205,4 +216,65 @@ test("storage write/quota exception returns false and updates getStatus", () => 
   const status = store.getStatus();
   assert.equal(status.available, false);
   assert.match(status.error, /QuotaExceededError/);
+});
+
+test("legacy v1 save without sunlinePhase loads without recovery or data loss", () => {
+  const mockStorage = createMockStorage({
+    [SAVE_KEY]: JSON.stringify({
+      version: 1,
+      discoveries: ["plaza", "skywalk"],
+      deliveryPhase: "carrying",
+      maintenancePhase: "repaired",
+      muted: true,
+    }),
+  });
+  const store = createSaveStore(() => mockStorage);
+  const loaded = store.load(["plaza", "skywalk"]);
+  assert.deepEqual(loaded, {
+    discoveries: ["plaza", "skywalk"],
+    deliveryPhase: "carrying",
+    maintenancePhase: "repaired",
+    sunlinePhase: "available",
+    muted: true,
+  });
+  const status = store.getStatus();
+  assert.equal(status.available, true);
+  assert.equal(status.recovered, false);
+});
+
+test("invalid present sunlinePhase normalizes to available with recovered=true", () => {
+  const mockStorage = createMockStorage({
+    [SAVE_KEY]: JSON.stringify({
+      version: 1,
+      discoveries: ["plaza"],
+      deliveryPhase: "available",
+      maintenancePhase: "available",
+      sunlinePhase: "not-a-real-phase",
+      muted: false,
+    }),
+  });
+  const store = createSaveStore(() => mockStorage);
+  const loaded = store.load(["plaza"]);
+  assert.equal(loaded.sunlinePhase, "available");
+  assert.equal(store.getStatus().recovered, true);
+});
+
+test("a saved replacement remains pending restoration rather than restarting the job", () => {
+  const storage = createMockStorage();
+  const saved = createSaveStore(() => storage);
+  assert.equal(saved.save({
+    discoveries: ["plaza"], deliveryPhase: "carrying",
+    maintenancePhase: "complete", sunlinePhase: "replaced", muted: true,
+  }), true);
+  const restored = createSaveStore(() => storage).load(["plaza"]);
+  const job = createSunlineState(restored.sunlinePhase);
+  const module = { ...SUNLINE_PANEL, grounded: true, traversalMode: "trolley" };
+  assert.equal(job.interact(module).changed, false);
+  assert.equal(job.getPhase(), "replaced");
+  const console = { ...ENDCAP_HUBS[1].control, grounded: true, traversalMode: "secured" };
+  assert.equal(job.interact(console).changed, true);
+  assert.equal(job.getPhase(), "complete");
+  assert.equal(restored.deliveryPhase, "carrying");
+  assert.equal(restored.maintenancePhase, "complete");
+  assert.equal(restored.muted, true);
 });

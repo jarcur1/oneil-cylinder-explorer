@@ -38,6 +38,60 @@ function wrappedDeltaTheta(t1, t2) {
   if (dt < -Math.PI) dt += TWO_PI;
   return dt;
 }
+function validateConstraint(c, groundHeight) {
+  if (!c || typeof c !== "object") {
+    throw new Error("Invalid constraint: must be a non-null object");
+  }
+  if (c.mode !== "secured" && c.mode !== "trolley") {
+    throw new Error(`Invalid constraint mode: ${c.mode}`);
+  }
+  if (
+    !Number.isFinite(c.theta) ||
+    !Number.isFinite(c.height) ||
+    !Number.isFinite(c.speed) ||
+    !Number.isFinite(c.minY) ||
+    !Number.isFinite(c.maxY)
+  ) {
+    throw new Error(
+      "Invalid constraint: coordinates and speed must be finite numbers",
+    );
+  }
+  const minAllowedH = groundHeight;
+  const maxAllowedH = RADIUS - EYE_HEIGHT - 1;
+  if (c.height < minAllowedH || c.height > maxAllowedH) {
+    throw new Error(
+      `Invalid constraint height ${c.height}: out of range [${minAllowedH}, ${maxAllowedH}]`,
+    );
+  }
+  if (c.minY < MIN_Y || c.minY >= c.maxY || c.maxY > MAX_Y) {
+    throw new Error(
+      `Invalid constraint Y bounds [${c.minY}, ${c.maxY}]: out of range [${MIN_Y}, ${MAX_Y}]`,
+    );
+  }
+  if (c.speed <= 0) {
+    throw new Error(`Invalid constraint speed: must be positive, got ${c.speed}`);
+  }
+  if (c.mode === "secured") {
+    if (
+      !Number.isFinite(c.minDTheta) ||
+      !Number.isFinite(c.maxDTheta) ||
+      c.minDTheta <= -Math.PI ||
+      c.minDTheta >= c.maxDTheta ||
+      c.maxDTheta >= Math.PI
+    ) {
+      throw new Error(
+        `Invalid constraint angular bounds [${c.minDTheta}, ${c.maxDTheta}]: must satisfy -PI < minDTheta < maxDTheta < PI`,
+      );
+    }
+  } else if (c.mode === "trolley") {
+    if (c.direction !== 1 && c.direction !== -1) {
+      throw new Error(
+        `Invalid constraint trolley direction: must be exactly 1 or -1, got ${c.direction}`,
+      );
+    }
+  }
+}
+
 
 const _eye = new Vector3();
 const _target = new Vector3();
@@ -66,6 +120,30 @@ export function createPlayer(camera, domElement, options = {}) {
   let speed = 0;
   let grounded = true;
   let enabled = false;
+  let activeConstraint = null;
+
+  function clampPose() {
+    if (activeConstraint) {
+      y = Math.max(activeConstraint.minY, Math.min(activeConstraint.maxY, y));
+      if (activeConstraint.mode === "trolley") {
+        theta = wrapTheta(activeConstraint.theta);
+      } else if (activeConstraint.mode === "secured") {
+        const dTheta = Math.max(
+          activeConstraint.minDTheta,
+          Math.min(
+            activeConstraint.maxDTheta,
+            wrappedDeltaTheta(theta, activeConstraint.theta),
+          ),
+        );
+        theta = wrapTheta(activeConstraint.theta + dTheta);
+      }
+    } else {
+      theta = wrapTheta(theta);
+      if (y < MIN_Y) y = MIN_Y;
+      if (y > MAX_Y) y = MAX_Y;
+    }
+  }
+
 
   let isDragging = false;
   let lastMouseX = 0;
@@ -337,10 +415,8 @@ export function createPlayer(camera, domElement, options = {}) {
           }
 
           theta += pushS / radius;
-          theta = wrapTheta(theta);
           y += pushY;
-          if (y < MIN_Y) y = MIN_Y;
-          if (y > MAX_Y) y = MAX_Y;
+          clampPose();
         }
       }
     }
@@ -419,57 +495,79 @@ export function createPlayer(camera, domElement, options = {}) {
       const substeps = Math.max(1, Math.ceil(clampedDt / SUBSTEP_DELTA));
       const subDt = clampedDt / substeps;
 
-      let dx = 0;
-      let dz = 0;
-      if (keys.forward) dz += 1;
-      if (keys.backward) dz -= 1;
-      if (keys.right) dx += 1;
-      if (keys.left) dx -= 1;
 
-      const moveLen = Math.hypot(dx, dz);
-      if (moveLen > 0) {
-        dx /= moveLen;
-        dz /= moveLen;
+      let velCirc = 0;
+      let velLong = 0;
+
+      if (activeConstraint && activeConstraint.mode === "trolley") {
+        let drive = 0;
+        if (keys.forward) drive += 1;
+        if (keys.backward) drive -= 1;
+        velLong = drive * activeConstraint.speed * activeConstraint.direction;
+      } else {
+        let dx = 0;
+        let dz = 0;
+        if (keys.forward) dz += 1;
+        if (keys.backward) dz -= 1;
+        if (keys.right) dx += 1;
+        if (keys.left) dx -= 1;
+
+        const moveLen = Math.hypot(dx, dz);
+        if (moveLen > 0) {
+          dx /= moveLen;
+          dz /= moveLen;
+        }
+
+        const moveSpeed =
+          activeConstraint && activeConstraint.mode === "secured"
+            ? activeConstraint.speed
+            : keys.sprint
+              ? SPRINT_SPEED
+              : WALK_SPEED;
+
+        velCirc = (dz * Math.sin(yaw) + dx * Math.cos(yaw)) * moveSpeed;
+        velLong = (dz * Math.cos(yaw) - dx * Math.sin(yaw)) * moveSpeed;
       }
-
-      const moveSpeed = keys.sprint ? SPRINT_SPEED : WALK_SPEED;
-      const velCirc = (dz * Math.sin(yaw) + dx * Math.cos(yaw)) * moveSpeed;
-      const velLong = (dz * Math.cos(yaw) - dx * Math.sin(yaw)) * moveSpeed;
 
       for (let s = 0; s < substeps; s++) {
         const previousTheta = theta;
         const previousY = y;
         const walkRadius = Math.max(1.0, RADIUS - h);
         theta += (velCirc * subDt) / walkRadius;
-        theta = wrapTheta(theta);
         y += velLong * subDt;
 
-        if (y < MIN_Y) y = MIN_Y;
-        if (y > MAX_Y) y = MAX_Y;
+        clampPose();
 
-        resolveObstacleCollisions(collisionBoxes, previousTheta, previousY);
+        if (activeConstraint?.mode !== "trolley")
+          resolveObstacleCollisions(collisionBoxes, previousTheta, previousY);
 
-        if (keys.jump && grounded) {
-          velH = JUMP_VELOCITY;
-          grounded = false;
-        }
-
-        if (!grounded) {
-          velH -= gravityAtHeight(h) * subDt;
-        }
-
-        const previousHeight = h;
-        h += velH * subDt;
-        resolveCeiling(previousHeight);
-
-        const currentFloor = computeFloorHeight(previousHeight);
-
-        if (h <= currentFloor) {
-          h = currentFloor;
+        if (activeConstraint) {
+          h = activeConstraint.height;
           velH = 0;
           grounded = true;
         } else {
-          grounded = false;
+          if (keys.jump && grounded) {
+            velH = JUMP_VELOCITY;
+            grounded = false;
+          }
+
+          if (!grounded) {
+            velH -= gravityAtHeight(h) * subDt;
+          }
+
+          const previousHeight = h;
+          h += velH * subDt;
+          resolveCeiling(previousHeight);
+
+          const currentFloor = computeFloorHeight(previousHeight);
+
+          if (h <= currentFloor) {
+            h = currentFloor;
+            velH = 0;
+            grounded = true;
+          } else {
+            grounded = false;
+          }
         }
       }
 
@@ -485,15 +583,32 @@ export function createPlayer(camera, domElement, options = {}) {
   }
 
   function teleport(pose) {
+    let nextConstraint = null;
+    if (pose.constraint != null) {
+      validateConstraint(pose.constraint, groundHeight);
+      nextConstraint = pose.constraint;
+    }
+
+    activeConstraint = nextConstraint;
     theta = wrapTheta(pose.theta);
-    y = Math.max(MIN_Y, Math.min(MAX_Y, pose.y));
-    h = Math.max(groundHeight, Math.min(RADIUS - EYE_HEIGHT - 1, pose.height));
-    velH = 0;
+    y = pose.y;
     yaw = pose.yaw ?? 0;
     pitch = 0;
     speed = 0;
-    grounded = Math.abs(h - computeFloorHeight(h)) < 0.001;
+    velH = 0;
     clearInput();
+
+    if (activeConstraint) {
+      h = activeConstraint.height;
+    } else {
+      h = Math.max(
+        groundHeight,
+        Math.min(RADIUS - EYE_HEIGHT - 1, pose.height),
+      );
+    }
+
+    clampPose();
+    grounded = activeConstraint ? true : Math.abs(h - computeFloorHeight(h)) < 0.001;
     updateCamera();
   }
 
@@ -534,6 +649,11 @@ export function createPlayer(camera, domElement, options = {}) {
     target.grounded = grounded;
     target.locked = document.pointerLockElement === domElement;
     target.gravity = gravityAtHeight(h);
+    target.traversalMode = activeConstraint ? activeConstraint.mode : "walk";
+    target.railDirection =
+      activeConstraint && activeConstraint.mode === "trolley"
+        ? activeConstraint.direction
+        : 0;
     return target;
   }
 
