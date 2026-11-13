@@ -101,6 +101,9 @@ canvas {
   margin: 0 14px;
   opacity: 0.4;
 }
+.compact-physics {
+  display: none;
+}
 .glass-button {
   border: 1px solid #ffffff30;
   background: #14283080;
@@ -145,7 +148,8 @@ canvas {
 #viewport.lift-travel {
   opacity: 0;
 }
-#start-greenway {
+#start-greenway,
+#start-city {
   display: block;
   margin: 0 0 18px;
   padding: 0;
@@ -446,6 +450,26 @@ footer {
   overflow-y: auto;
   scrollbar-width: thin;
 }
+#sunline-district {
+  margin: 12px 0 0;
+  color: #d5f58e;
+  font-size: 10px;
+  line-height: 1.6;
+}
+#sunline-district[data-online="false"] {
+  color: #ffd09c;
+}
+.sunline-controls {
+  color: #c4d9d4;
+  font-size: 9px;
+  line-height: 1.6;
+  margin: 12px 0 0;
+}
+#landmarks {
+  max-height: min(340px, calc(100dvh - 430px));
+  overflow-y: auto;
+  scrollbar-width: thin;
+}
 .dialogue-panel {
   position: absolute;
   z-index: 3;
@@ -585,6 +609,19 @@ footer {
   .status {
     display: none;
   }
+  .compact-physics {
+    display: block;
+    position: absolute;
+    right: 20px;
+    top: 69px;
+    color: #d5f58e;
+    background: #10232bcc;
+    padding: 4px 8px;
+    border-radius: 3px;
+    font-size: 9px;
+    letter-spacing: 0.08em;
+    pointer-events: none;
+  }
   .glass-button {
     margin-left: auto;
   }
@@ -679,7 +716,7 @@ footer {
     flex: 0 0 auto;
   }
   .has-dialogue .hud-cards {
-    max-height: calc(100dvh - 360px);
+    max-height: min(calc(100dvh - 190px), var(--dialogue-room));
   }
   .dialogue-panel {
     bottom: 56px;

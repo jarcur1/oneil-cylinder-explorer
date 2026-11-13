@@ -269,7 +269,7 @@ export function applyAtmosphere(scene, district, terrain, obstacles) {
   for (const obs of obstacles) {
     const s = Math.atan2(Math.sin(obs.theta), Math.cos(obs.theta)) * RADIUS;
     if (
-      (obs.base ?? 0) > 0 ||
+      (obs.base ?? 0) !== 0 ||
       obs.height < 2 ||
       obs.width < 3 ||
       obs.depth < 3 ||

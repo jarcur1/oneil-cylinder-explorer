@@ -3,14 +3,20 @@ import { RADIUS, LENGTH, SPAWN } from "./habitat.js";
 import { surfacePos, surfaceUp, setSurfaceMatrix } from "./surface.js";
 import { createVillage } from "./village.js";
 import { createFarm } from "./farm.js";
-import { DISTRICT_STOPS, inDistrict } from "./district-layout.js";
+import { inDistrict } from "./district-layout.js";
 import { createResidents } from "./residents.js";
 import { createDelivery } from "./delivery.js";
 import { applyAtmosphere } from "./atmosphere.js";
+import { createDistrictLighting } from "./district-lighting.js";
 import { createCityStreets } from "./city-streets.js";
 import { createCityTower } from "./city-tower.js";
-import { CITY_STOPS, inCity } from "./city-layout.js";
+import { inCity } from "./city-layout.js";
 import { createMaintenance } from "./maintenance.js";
+import { createServiceLevel } from "./service-level.js";
+import { SERVICE_FLOOR } from "./service-layout.js";
+import { createSunline } from "./sunline.js";
+import { LANDMARKS } from "./landmarks.js";
+import { wrappedDeltaTheta } from "./cylinder-math.js";
 
 // Deterministic PRNG (Mulberry32)
 function createRng(seed = 0x5a17e) {
@@ -25,10 +31,7 @@ function createRng(seed = 0x5a17e) {
 
 // Shortest wrapped circumferential arc distance
 function shortestArc(thetaA, thetaB) {
-  let diff = (thetaA - thetaB) % (Math.PI * 2);
-  if (diff < -Math.PI) diff += Math.PI * 2;
-  if (diff > Math.PI) diff -= Math.PI * 2;
-  return Math.abs(diff);
+  return Math.abs(wrappedDeltaTheta(thetaA, thetaB));
 }
 
 // River centerline function
@@ -50,7 +53,6 @@ export function createWorld(scene, camera, saved = {}) {
   const positions = new Float32Array(numVerts * 3);
   const normals = new Float32Array(numVerts * 3);
   const colors = new Float32Array(numVerts * 3);
-  const uvs = new Float32Array(numVerts * 2);
   const indices = new Uint16Array(segsT * segsY * 6);
 
   for (let i = 0; i <= segsT; i++) {
@@ -62,7 +64,6 @@ export function createWorld(scene, camera, saved = {}) {
     const nz = cosT;
 
     const dCenterArc = shortestArc(theta, 0) * RADIUS;
-    const dRiverCenter = shortestArc(theta, getRiverTheta(0)) * RADIUS;
 
     for (let j = 0; j <= segsY; j++) {
       const y = -LENGTH / 2 + (j / segsY) * LENGTH;
@@ -78,8 +79,6 @@ export function createWorld(scene, camera, saved = {}) {
       normals[vIdx * 3 + 1] = ny;
       normals[vIdx * 3 + 2] = nz;
 
-      uvs[vIdx * 2 + 0] = i / segsT;
-      uvs[vIdx * 2 + 1] = j / segsY;
 
       // Procedural color determination
       let r = 0.2;
@@ -219,7 +218,6 @@ export function createWorld(scene, camera, saved = {}) {
   terrainGeo.setAttribute("position", new THREE.BufferAttribute(positions, 3));
   terrainGeo.setAttribute("normal", new THREE.BufferAttribute(normals, 3));
   terrainGeo.setAttribute("color", new THREE.BufferAttribute(colors, 3));
-  terrainGeo.setAttribute("uv", new THREE.BufferAttribute(uvs, 2));
   terrainGeo.setIndex(new THREE.BufferAttribute(indices, 1));
 
   const terrainMat = new THREE.MeshStandardMaterial({
@@ -351,7 +349,6 @@ export function createWorld(scene, camera, saved = {}) {
       crystal: crystalMesh,
       ring1: ringMesh1,
       ring2: ringMesh2,
-      crystalMat,
       beamMat,
     });
   }
@@ -427,7 +424,7 @@ export function createWorld(scene, camera, saved = {}) {
     const theta = cand.theta;
     const y = cand.y;
     // Both authored neighborhoods replace random scenery, including margins.
-    const arc = Math.atan2(Math.sin(theta), Math.cos(theta)) * RADIUS;
+    const arc = wrappedDeltaTheta(theta, 0) * RADIUS;
     const margin = Math.max(width, depth) / 2 + 5;
     if (inDistrict(arc, y, margin) || inCity(arc, y, margin)) continue;
 
@@ -592,7 +589,7 @@ export function createWorld(scene, camera, saved = {}) {
   for (let i = 0; i < 280; i++) {
     const y = -400 + rng() * 800;
     const theta = rng() * Math.PI * 2;
-    const arc = Math.atan2(Math.sin(theta), Math.cos(theta)) * RADIUS;
+    const arc = wrappedDeltaTheta(theta, 0) * RADIUS;
     if (inDistrict(arc, y, 6) || inCity(arc, y, 6)) continue;
 
     const dSpawnArc = shortestArc(theta, SPAWN.theta) * RADIUS;
@@ -780,39 +777,7 @@ export function createWorld(scene, camera, saved = {}) {
     worldGroup.add(ringTorusMesh);
   }
 
-  // 6. Axial Luminous Sunline (central spinal light source)
-  const sunlineCoreGeo = new THREE.CylinderGeometry(
-    1.6,
-    1.6,
-    LENGTH - 8,
-    24,
-    1,
-    false,
-  );
-  const sunlineCoreMat = new THREE.MeshBasicMaterial({
-    color: 0xfff6dc,
-  });
-  const sunlineCore = new THREE.Mesh(sunlineCoreGeo, sunlineCoreMat);
-  worldGroup.add(sunlineCore);
-
-  const sunlineGlowGeo = new THREE.CylinderGeometry(
-    3.6,
-    3.6,
-    LENGTH - 8,
-    24,
-    1,
-    true,
-  );
-  const sunlineGlowMat = new THREE.MeshBasicMaterial({
-    color: 0xffe8ab,
-    transparent: true,
-    opacity: 0.18,
-    side: THREE.DoubleSide,
-    blending: THREE.AdditiveBlending,
-    depthWrite: false,
-  });
-  const sunlineGlow = new THREE.Mesh(sunlineGlowGeo, sunlineGlowMat);
-  worldGroup.add(sunlineGlow);
+  const sunline = createSunline(worldGroup, saved.sunlinePhase);
   const districtGroup = new THREE.Group();
   districtGroup.name = "inhabited_districts";
   worldGroup.add(districtGroup);
@@ -823,6 +788,7 @@ export function createWorld(scene, camera, saved = {}) {
   const cityStreets = createCityStreets(districtGroup);
   const cityTower = createCityTower(districtGroup);
   const maintenance = createMaintenance(districtGroup, saved.maintenancePhase);
+  const service = createServiceLevel(districtGroup);
   obstacles.push(
     ...village.obstacles,
     ...farm.obstacles,
@@ -830,15 +796,34 @@ export function createWorld(scene, camera, saved = {}) {
     ...cityStreets.obstacles,
     ...cityTower.obstacles,
     ...maintenance.obstacles,
+    ...service.obstacles,
+    ...sunline.obstacles,
+    // The living surface is a deck, not the outermost pressure-hull floor.
+    // Its underside stays solid above the enclosed service spaces.
+    {
+      theta: 0,
+      y: 0,
+      width: Math.PI * 2 * RADIUS,
+      depth: LENGTH,
+      base: -0.6,
+      height: 0.6,
+    },
   );
   applyAtmosphere(scene, districtGroup, terrainMesh, obstacles);
+  const districtLighting = createDistrictLighting(
+    scene,
+    sunline.getDistrictStatus().online,
+  );
 
   // Return API
-  function update(dt, elapsed) {
+  function update(dt, elapsed, playerState) {
     farm.update(dt, elapsed);
     residents.update(dt, elapsed);
     delivery.update(dt, elapsed);
     maintenance.update(dt, elapsed);
+    service.update(dt, elapsed);
+    sunline.update(dt, elapsed, playerState);
+    districtLighting.update(dt, sunline.getDistrictStatus().online);
     for (let i = 0; i < beaconAnims.length; i++) {
       const b = beaconAnims[i];
       if (b.crystal) {
@@ -852,8 +837,8 @@ export function createWorld(scene, camera, saved = {}) {
         b.ring2.rotation.x = elapsed * -0.7;
         b.ring2.rotation.y = elapsed * 0.5;
       }
-      if (b.crystalMat) {
-        b.crystalMat.emissiveIntensity =
+      if (b.crystal?.material) {
+        b.crystal.material.emissiveIntensity =
           1.1 + 0.35 * Math.sin(elapsed * 2.8 + i * 2.1);
       }
       if (b.beamMat) {
@@ -863,10 +848,13 @@ export function createWorld(scene, camera, saved = {}) {
   }
 
   return {
+    groundHeight: SERVICE_FLOOR,
     obstacles,
-    stops: [...DISTRICT_STOPS, ...CITY_STOPS],
+    stops: LANDMARKS,
     delivery,
     maintenance,
+    sunline,
+    residents,
     update,
   };
 }

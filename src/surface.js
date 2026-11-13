@@ -109,9 +109,42 @@ export function addSurfaceSign(parent, text, s, y, width = 5, base = 2.3) {
   ctx.textAlign = "center";
   ctx.textBaseline = "middle";
   ctx.fillStyle = "#f1eddb";
-  ctx.font = `600 ${lines.length > 1 ? 56 : 72}px system-ui`;
+  const maxWidth = 940;
+  const minY = 26;
+  const maxY = 230;
+  let fontSize = lines.length > 1 ? 56 : 72;
+  let lineStep = (fontSize * 78) / 56;
+
+  while (true) {
+    ctx.font = `600 ${fontSize}px system-ui`;
+    lineStep = (fontSize * 78) / 56;
+    let fits = true;
+    let prevBottom = -Infinity;
+    for (let i = 0; i < lines.length; i++) {
+      const lineY = 128 + (i - (lines.length - 1) / 2) * lineStep;
+      const metrics = ctx.measureText(lines[i]);
+      const ascent = metrics.actualBoundingBoxAscent ?? fontSize * 0.55;
+      const descent = metrics.actualBoundingBoxDescent ?? fontSize * 0.55;
+      const top = lineY - ascent;
+      const bottom = lineY + descent;
+      if (top < minY || bottom > maxY || top - prevBottom < 4) {
+        fits = false;
+        break;
+      }
+      prevBottom = bottom;
+    }
+    if (fits || fontSize <= 12) break;
+    fontSize -= 1;
+  }
+
+  ctx.font = `600 ${fontSize}px system-ui`;
   lines.forEach((line, i) =>
-    ctx.fillText(line, 512, 128 + (i - (lines.length - 1) / 2) * 78, 940),
+    ctx.fillText(
+      line,
+      512,
+      128 + (i - (lines.length - 1) / 2) * lineStep,
+      maxWidth,
+    ),
   );
   const texture = new THREE.CanvasTexture(canvas);
   texture.colorSpace = THREE.SRGBColorSpace;
@@ -130,6 +163,38 @@ export function addSurfaceSign(parent, text, s, y, width = 5, base = 2.3) {
       new THREE.Vector3(0, 1, 0),
       -s / RADIUS,
     ),
+  );
+  parent.add(mesh);
+  return mesh;
+}
+
+// Text height follows local cylindrical up; normals face the actual approach.
+export function addOrientedPanel(
+  parent,
+  material,
+  position,
+  facing,
+  width = 3.6,
+  height = 0.9,
+) {
+  const mesh = new THREE.Mesh(new THREE.PlaneGeometry(width, height), material);
+  mesh.castShadow = false;
+  mesh.receiveShadow = false;
+  mesh.position.copy(position);
+  const theta = Math.atan2(position.x, -position.z);
+  const up = surfaceUp(theta);
+  const east = new THREE.Vector3(Math.cos(theta), 0, Math.sin(theta));
+  const normal =
+    facing === "north"
+      ? new THREE.Vector3(0, 1, 0)
+      : facing === "south"
+        ? new THREE.Vector3(0, -1, 0)
+        : facing === "east"
+          ? east
+          : east.negate();
+  const right = new THREE.Vector3().crossVectors(up, normal).normalize();
+  mesh.quaternion.setFromRotationMatrix(
+    new THREE.Matrix4().makeBasis(right, up, normal),
   );
   parent.add(mesh);
   return mesh;

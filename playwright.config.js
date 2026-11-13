@@ -1,0 +1,35 @@
+import { defineConfig, devices } from "@playwright/test";
+
+export default defineConfig({
+  testDir: "checks",
+  testMatch: "browser.spec.js",
+  workers: 1,
+  fullyParallel: false,
+  timeout: 45_000,
+  use: {
+    baseURL: "http://127.0.0.1:4176",
+    headless: true,
+  },
+  projects: [
+    {
+      name: "chromium",
+      use: {
+        ...devices["Desktop Chrome"],
+        headless: true,
+        launchOptions: {
+          args: [
+            "--use-gl=angle",
+            "--use-angle=swiftshader",
+            "--enable-unsafe-swiftshader",
+            "--ignore-gpu-blocklist",
+          ],
+        },
+      },
+    },
+  ],
+  webServer: {
+    command: "npm run dev -- --port 4176 --strictPort",
+    url: "http://127.0.0.1:4176",
+    reuseExistingServer: false,
+  },
+});

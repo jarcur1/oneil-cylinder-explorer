@@ -131,6 +131,24 @@ test("maintenance state: remote, airborne, and wrong-floor safeguards", () => {
   assert.equal(state.interact(undefined), null);
 });
 
+test("assigned maintenance view includes vertical separation beneath the Skywalk unit", () => {
+  const state = createMaintenanceState("assigned");
+  const underSkywalkPlayer = {
+    theta: VENTILATION_UNIT.s / RADIUS,
+    y: VENTILATION_UNIT.y,
+    height: 0,
+    grounded: true,
+  };
+  const view = state.getView(underSkywalkPlayer);
+  assert.equal(view.prompt, null);
+  assert.ok(Math.abs(view.distance - VENTILATION_UNIT.height) < 1e-6);
+  assert.equal(state.interact(underSkywalkPlayer), null);
+
+  const atUnitView = state.getView(UNIT_PLAYER);
+  assert.equal(atUnitView.prompt, "Restart ventilation unit");
+  assert.ok(atUnitView.distance < 1e-6);
+});
+
 test("unit service uses wrapped physical range at Skywalk height", () => {
   const state = createMaintenanceState("assigned");
   const unitTheta = VENTILATION_UNIT.s / RADIUS;
