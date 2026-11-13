@@ -1,4 +1,5 @@
 import { RADIUS } from "./habitat.js";
+import { horizontalDistance, spatialDistance } from "./cylinder-math.js";
 import { CARETAKER, VENTILATION_UNIT } from "./maintenance-layout.js";
 
 const VALID_PHASES = Object.freeze([
@@ -21,21 +22,18 @@ const TARGET_UNIT = Object.freeze({
 });
 
 /**
- * Computes wrapped Euclidean physical distance in cylindrical coordinates at target elevation.
- * Ground arc coordinates shrink by (180 - targetHeight) / 180 at altitude.
+ * Computes 3D distance including vertical separation for HUD and destination view.
  */
-function calcWrappedTargetDistance(playerState, target) {
+function calcViewDistance(playerState, target) {
   if (!playerState) return Infinity;
-  const targetTheta = target.s / RADIUS;
-  const playerTheta = playerState.theta;
-  const dTheta = Math.atan2(
-    Math.sin(playerTheta - targetTheta),
-    Math.cos(playerTheta - targetTheta),
+  return spatialDistance(
+    playerState.theta,
+    playerState.y,
+    playerState.height,
+    target.s / RADIUS,
+    target.y,
+    target.height,
   );
-  const physicalRadius = Math.max(1, RADIUS - target.height);
-  const ds = dTheta * physicalRadius;
-  const dy = playerState.y - target.y;
-  return Math.hypot(ds, dy);
 }
 
 /**
@@ -46,10 +44,14 @@ function calcWrappedTargetDistance(playerState, target) {
  */
 function isTargetEligible(playerState, target) {
   if (!playerState || !playerState.grounded) return false;
-  const targetHeight = target.height;
-  const playerHeight = playerState.height;
-  if (Math.abs(playerHeight - targetHeight) > 0.4) return false;
-  const dist = calcWrappedTargetDistance(playerState, target);
+  if (Math.abs(playerState.height - target.height) > 0.4) return false;
+  const dist = horizontalDistance(
+    playerState.theta,
+    playerState.y,
+    target.s / RADIUS,
+    target.y,
+    target.height,
+  );
   return dist <= target.range;
 }
 
@@ -93,7 +95,7 @@ export function createMaintenanceState(initialPhase = "available") {
         "Speak with Mara Voss in Meridian Plaza about civic maintenance.";
       viewResult.target = TARGET_CARETAKER;
       viewResult.distance = playerState
-        ? calcWrappedTargetDistance(playerState, TARGET_CARETAKER)
+        ? calcViewDistance(playerState, TARGET_CARETAKER)
         : 0;
       viewResult.progress = "0 / 3";
       viewResult.status = "AVAILABLE";
@@ -110,7 +112,7 @@ export function createMaintenanceState(initialPhase = "available") {
         "Restart the ventilation unit at the north end of the Skywalk terrace.";
       viewResult.target = TARGET_UNIT;
       viewResult.distance = playerState
-        ? calcWrappedTargetDistance(playerState, TARGET_UNIT)
+        ? calcViewDistance(playerState, TARGET_UNIT)
         : 0;
       viewResult.progress = "1 / 3";
       viewResult.status = "VENTILATION UNIT OFFLINE";
@@ -126,7 +128,7 @@ export function createMaintenanceState(initialPhase = "available") {
       viewResult.objective = "Report back to Mara Voss in Meridian Plaza.";
       viewResult.target = TARGET_CARETAKER;
       viewResult.distance = playerState
-        ? calcWrappedTargetDistance(playerState, TARGET_CARETAKER)
+        ? calcViewDistance(playerState, TARGET_CARETAKER)
         : 0;
       viewResult.progress = "2 / 3";
       viewResult.status = "REPORT TO CARETAKER";

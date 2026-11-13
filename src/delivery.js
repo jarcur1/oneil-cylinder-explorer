@@ -1,5 +1,6 @@
 import * as THREE from "three";
 import { RADIUS } from "./habitat.js";
+import { horizontalDistance } from "./cylinder-math.js";
 import { surfacePos } from "./surface.js";
 import { DELIVERY_STATIONS } from "./delivery-layout.js";
 
@@ -119,20 +120,6 @@ function createCrateLabelTexture() {
 }
 
 /**
- * Computes wrapped Euclidean ground distance in cylindrical coordinates.
- */
-function calcGroundDistance(playerTheta, playerY, stationS, stationY) {
-  const stationTheta = stationS / RADIUS;
-  const dTheta = Math.atan2(
-    Math.sin(playerTheta - stationTheta),
-    Math.cos(playerTheta - stationTheta),
-  );
-  const ds = dTheta * RADIUS;
-  const dy = playerY - stationY;
-  return Math.hypot(ds, dy);
-}
-
-/**
  * Checks whether the player meets interaction eligibility criteria:
  * - Must be grounded
  * - Feet height between 0 and 0.5m
@@ -142,11 +129,12 @@ function isEligible(playerState, station) {
   if (!playerState || !playerState.grounded) return false;
   const h = playerState.height;
   if (h < 0 || h > 0.5) return false;
-  const dist = calcGroundDistance(
+  const dist = horizontalDistance(
     playerState.theta,
     playerState.y,
-    station.s,
+    station.s / RADIUS,
     station.y,
+    0,
   );
   return dist <= station.range;
 }
@@ -546,12 +534,15 @@ export function createDelivery(parent, camera, initialPhase = "available") {
   function getView(playerState) {
     if (phase === "available") {
       const eligible = isEligible(playerState, DELIVERY_STATIONS.pickup);
-      const dist = calcGroundDistance(
-        playerState.theta,
-        playerState.y,
-        DELIVERY_STATIONS.pickup.s,
-        DELIVERY_STATIONS.pickup.y,
-      );
+      const dist = playerState
+        ? horizontalDistance(
+            playerState.theta,
+            playerState.y,
+            TARGET_PICKUP.theta,
+            TARGET_PICKUP.y,
+            0,
+          )
+        : 0;
 
       return {
         phase: "available",
@@ -567,12 +558,15 @@ export function createDelivery(parent, camera, initialPhase = "available") {
 
     if (phase === "carrying") {
       const eligible = isEligible(playerState, DELIVERY_STATIONS.dropoff);
-      const dist = calcGroundDistance(
-        playerState.theta,
-        playerState.y,
-        DELIVERY_STATIONS.dropoff.s,
-        DELIVERY_STATIONS.dropoff.y,
-      );
+      const dist = playerState
+        ? horizontalDistance(
+            playerState.theta,
+            playerState.y,
+            TARGET_DROPOFF.theta,
+            TARGET_DROPOFF.y,
+            0,
+          )
+        : 0;
 
       return {
         phase: "carrying",

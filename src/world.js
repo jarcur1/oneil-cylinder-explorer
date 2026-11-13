@@ -3,19 +3,20 @@ import { RADIUS, LENGTH, SPAWN } from "./habitat.js";
 import { surfacePos, surfaceUp, setSurfaceMatrix } from "./surface.js";
 import { createVillage } from "./village.js";
 import { createFarm } from "./farm.js";
-import { DISTRICT_STOPS, inDistrict } from "./district-layout.js";
+import { inDistrict } from "./district-layout.js";
 import { createResidents } from "./residents.js";
 import { createDelivery } from "./delivery.js";
 import { applyAtmosphere } from "./atmosphere.js";
 import { createDistrictLighting } from "./district-lighting.js";
 import { createCityStreets } from "./city-streets.js";
 import { createCityTower } from "./city-tower.js";
-import { CITY_STOPS, inCity } from "./city-layout.js";
+import { inCity } from "./city-layout.js";
 import { createMaintenance } from "./maintenance.js";
 import { createServiceLevel } from "./service-level.js";
-import { SERVICE_FLOOR, SERVICE_STOPS } from "./service-layout.js";
+import { SERVICE_FLOOR } from "./service-layout.js";
 import { createSunline } from "./sunline.js";
-import { SUNLINE_STOPS } from "./sunline-layout.js";
+import { LANDMARKS } from "./landmarks.js";
+import { wrappedDeltaTheta } from "./cylinder-math.js";
 
 // Deterministic PRNG (Mulberry32)
 function createRng(seed = 0x5a17e) {
@@ -30,10 +31,7 @@ function createRng(seed = 0x5a17e) {
 
 // Shortest wrapped circumferential arc distance
 function shortestArc(thetaA, thetaB) {
-  let diff = (thetaA - thetaB) % (Math.PI * 2);
-  if (diff < -Math.PI) diff += Math.PI * 2;
-  if (diff > Math.PI) diff -= Math.PI * 2;
-  return Math.abs(diff);
+  return Math.abs(wrappedDeltaTheta(thetaA, thetaB));
 }
 
 // River centerline function
@@ -55,7 +53,6 @@ export function createWorld(scene, camera, saved = {}) {
   const positions = new Float32Array(numVerts * 3);
   const normals = new Float32Array(numVerts * 3);
   const colors = new Float32Array(numVerts * 3);
-  const uvs = new Float32Array(numVerts * 2);
   const indices = new Uint16Array(segsT * segsY * 6);
 
   for (let i = 0; i <= segsT; i++) {
@@ -67,7 +64,6 @@ export function createWorld(scene, camera, saved = {}) {
     const nz = cosT;
 
     const dCenterArc = shortestArc(theta, 0) * RADIUS;
-    const dRiverCenter = shortestArc(theta, getRiverTheta(0)) * RADIUS;
 
     for (let j = 0; j <= segsY; j++) {
       const y = -LENGTH / 2 + (j / segsY) * LENGTH;
@@ -83,8 +79,6 @@ export function createWorld(scene, camera, saved = {}) {
       normals[vIdx * 3 + 1] = ny;
       normals[vIdx * 3 + 2] = nz;
 
-      uvs[vIdx * 2 + 0] = i / segsT;
-      uvs[vIdx * 2 + 1] = j / segsY;
 
       // Procedural color determination
       let r = 0.2;
@@ -224,7 +218,6 @@ export function createWorld(scene, camera, saved = {}) {
   terrainGeo.setAttribute("position", new THREE.BufferAttribute(positions, 3));
   terrainGeo.setAttribute("normal", new THREE.BufferAttribute(normals, 3));
   terrainGeo.setAttribute("color", new THREE.BufferAttribute(colors, 3));
-  terrainGeo.setAttribute("uv", new THREE.BufferAttribute(uvs, 2));
   terrainGeo.setIndex(new THREE.BufferAttribute(indices, 1));
 
   const terrainMat = new THREE.MeshStandardMaterial({
@@ -431,7 +424,7 @@ export function createWorld(scene, camera, saved = {}) {
     const theta = cand.theta;
     const y = cand.y;
     // Both authored neighborhoods replace random scenery, including margins.
-    const arc = Math.atan2(Math.sin(theta), Math.cos(theta)) * RADIUS;
+    const arc = wrappedDeltaTheta(theta, 0) * RADIUS;
     const margin = Math.max(width, depth) / 2 + 5;
     if (inDistrict(arc, y, margin) || inCity(arc, y, margin)) continue;
 
@@ -596,7 +589,7 @@ export function createWorld(scene, camera, saved = {}) {
   for (let i = 0; i < 280; i++) {
     const y = -400 + rng() * 800;
     const theta = rng() * Math.PI * 2;
-    const arc = Math.atan2(Math.sin(theta), Math.cos(theta)) * RADIUS;
+    const arc = wrappedDeltaTheta(theta, 0) * RADIUS;
     if (inDistrict(arc, y, 6) || inCity(arc, y, 6)) continue;
 
     const dSpawnArc = shortestArc(theta, SPAWN.theta) * RADIUS;
@@ -857,7 +850,7 @@ export function createWorld(scene, camera, saved = {}) {
   return {
     groundHeight: SERVICE_FLOOR,
     obstacles,
-    stops: [...DISTRICT_STOPS, ...CITY_STOPS, ...SERVICE_STOPS, ...SUNLINE_STOPS],
+    stops: LANDMARKS,
     delivery,
     maintenance,
     sunline,

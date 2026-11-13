@@ -6,6 +6,7 @@ import {
   EYE_HEIGHT,
   gravityAtHeight,
 } from "./habitat.js";
+import { wrappedDeltaTheta } from "./cylinder-math.js";
 
 const TWO_PI = Math.PI * 2;
 const HALF_LENGTH = LENGTH * 0.5;
@@ -32,12 +33,6 @@ function wrapTheta(t) {
   return t < 0 ? t + Math.PI : t - Math.PI;
 }
 
-function wrappedDeltaTheta(t1, t2) {
-  let dt = (t1 - t2) % TWO_PI;
-  if (dt > Math.PI) dt -= TWO_PI;
-  if (dt < -Math.PI) dt += TWO_PI;
-  return dt;
-}
 function validateConstraint(c, groundHeight) {
   if (!c || typeof c !== "object") {
     throw new Error("Invalid constraint: must be a non-null object");
@@ -367,6 +362,7 @@ export function createPlayer(camera, domElement, options = {}) {
     let corrected = false;
 
     for (let pass = 0; pass < 2; pass++) {
+      let passCorrected = false;
       for (let i = 0; i < obsList.length; i++) {
         const {
           theta: oTheta,
@@ -393,6 +389,7 @@ export function createPlayer(camera, domElement, options = {}) {
 
         if (distSq < PLAYER_RADIUS * PLAYER_RADIUS) {
           corrected = true;
+          passCorrected = true;
           let pushS = 0;
           let pushY = 0;
 
@@ -419,6 +416,7 @@ export function createPlayer(camera, domElement, options = {}) {
           clampPose();
         }
       }
+      if (!passCorrected) break;
     }
     // Sequential pushes can alternate between opposing walls forever. Never
     // commit an unresolved squeeze: retain the last valid horizontal pose.

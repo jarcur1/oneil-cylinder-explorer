@@ -1,7 +1,7 @@
 import * as THREE from "three";
 import { RADIUS } from "./habitat.js";
 import { addCivicBlock } from "./civic-primitives.js";
-import { surfacePos, surfaceUp } from "./surface.js";
+import { addOrientedPanel, surfacePos, surfaceUp } from "./surface.js";
 import { SERVICE_FLOOR, SERVICE_ACCESS } from "./service-layout.js";
 
 // =============================================================================
@@ -170,32 +170,18 @@ function createHazardStripeTexture() {
 // =============================================================================
 
 function addWallSign(parent, texture, s, y, h, width, height, facing) {
-  const theta = s / RADIUS;
-  const up = surfaceUp(theta);
-  const sin = Math.sin(theta);
-  const cos = Math.cos(theta);
-  const east = new THREE.Vector3(cos, 0, sin);
-
-  let normal;
-  if (facing === "south") normal = new THREE.Vector3(0, -1, 0);
-  else if (facing === "north") normal = new THREE.Vector3(0, 1, 0);
-  else if (facing === "east") normal = east.clone();
-  else if (facing === "west") normal = east.clone().negate();
-  else normal = new THREE.Vector3(0, -1, 0);
-
-  const right = new THREE.Vector3().crossVectors(up, normal).normalize();
-  const matrix = new THREE.Matrix4().makeBasis(right, up, normal);
-  matrix.setPosition(surfacePos(theta, y, h));
-
-  const geo = new THREE.PlaneGeometry(width, height);
   const mat = new THREE.MeshBasicMaterial({
     map: texture,
     side: THREE.FrontSide,
   });
-  const mesh = new THREE.Mesh(geo, mat);
-  mesh.applyMatrix4(matrix);
-  parent.add(mesh);
-  return mesh;
+  return addOrientedPanel(
+    parent,
+    mat,
+    surfacePos(s / RADIUS, y, h),
+    facing,
+    width,
+    height,
+  );
 }
 
 function addFloorDecal(parent, texture, s, y, h, width, depth) {
@@ -361,7 +347,6 @@ export function createServiceLevel(parent) {
     glowWaterCyan: new THREE.MeshBasicMaterial({ color: 0x38bdf8 }),
     glowPowerAmber: new THREE.MeshBasicMaterial({ color: 0xfbbf24 }),
     statusGreen: new THREE.MeshBasicMaterial({ color: 0x22c55e }),
-    statusAmber: new THREE.MeshBasicMaterial({ color: 0xf59e0b }),
 
     // Surface pavilion civic palette
     pavilionLimestone: new THREE.MeshStandardMaterial({
@@ -373,11 +358,6 @@ export function createServiceLevel(parent) {
       color: 0x2b2824,
       roughness: 0.48,
       metalness: 0.58,
-    }),
-    pavilionBrass: new THREE.MeshStandardMaterial({
-      color: 0xc4a35a,
-      roughness: 0.32,
-      metalness: 0.82,
     }),
     pavilionGlass: new THREE.MeshStandardMaterial({
       color: 0x4aa3ad,

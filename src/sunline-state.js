@@ -1,4 +1,4 @@
-import { RADIUS } from "./habitat.js";
+import { horizontalDistance, spatialDistance } from "./cylinder-math.js";
 import { SUNLINE_PHASES, ENDCAP_HUBS, SUNLINE_PANEL } from "./sunline-layout.js";
 import { DISTRICT_NAME } from "./district-layout.js";
 
@@ -14,27 +14,6 @@ const DISTRICT_EMERGENCY_STATUS = Object.freeze({
   status: "EMERGENCY LIGHTING",
 });
 
-export function getDistrictStatusForPhase(phase) {
-  return phase === "available" || phase === "complete"
-    ? DISTRICT_ONLINE_STATUS
-    : DISTRICT_EMERGENCY_STATUS;
-}
-
-function wrappedDeltaTheta(t1, t2) {
-  return Math.atan2(Math.sin(t1 - t2), Math.cos(t1 - t2));
-}
-
-/**
- * Computes horizontal physical distance in cylindrical coordinates at target elevation.
- */
-function calcHorizontalDistance(playerState, target) {
-  if (!playerState) return Infinity;
-  const angle = wrappedDeltaTheta(playerState.theta, target.theta);
-  return Math.hypot(
-    angle * (RADIUS - target.height),
-    playerState.y - target.y,
-  );
-}
 
 /**
  * Computes 3D distance including vertical separation for HUD and destination view:
@@ -42,9 +21,13 @@ function calcHorizontalDistance(playerState, target) {
  */
 function calcViewDistance(playerState, target) {
   if (!playerState) return Infinity;
-  return Math.hypot(
-    calcHorizontalDistance(playerState, target),
-    playerState.height - target.height,
+  return spatialDistance(
+    playerState.theta,
+    playerState.y,
+    playerState.height,
+    target.theta,
+    target.y,
+    target.height,
   );
 }
 
@@ -59,7 +42,13 @@ function isTargetEligible(playerState, target, expectedMode) {
   return !!playerState?.grounded &&
     playerState.traversalMode === expectedMode &&
     Math.abs(playerState.height - target.height) <= 0.35 &&
-    calcHorizontalDistance(playerState, target) <= target.range;
+    horizontalDistance(
+      playerState.theta,
+      playerState.y,
+      target.theta,
+      target.y,
+      target.height,
+    ) <= target.range;
 }
 
 function getNearestHubControl(playerState) {
@@ -98,7 +87,9 @@ export function createSunlineState(initialPhase = "available") {
   }
 
   function getDistrictStatus() {
-    return getDistrictStatusForPhase(phase);
+    return phase === "available" || phase === "complete"
+      ? DISTRICT_ONLINE_STATUS
+      : DISTRICT_EMERGENCY_STATUS;
   }
 
   function getView(playerState = null) {

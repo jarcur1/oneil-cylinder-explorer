@@ -1,4 +1,4 @@
-import { RADIUS } from "./habitat.js";
+import { horizontalDistance } from "./cylinder-math.js";
 import { ENDCAP_HUBS } from "./sunline-layout.js";
 
 const TRANSFERS = Object.freeze(ENDCAP_HUBS.flatMap((hub) => [
@@ -33,11 +33,15 @@ export function getSunlineTransfer(state) {
   for (const stop of TRANSFERS) {
     if (state.traversalMode !== stop.mode || Math.abs(state.height - stop.height) > 0.35)
       continue;
-    const angle = Math.atan2(
-      Math.sin(state.theta - stop.theta),
-      Math.cos(state.theta - stop.theta),
-    );
-    if (Math.hypot(angle * (RADIUS - stop.height), state.y - stop.y) <= 2.8)
+    if (
+      horizontalDistance(
+        state.theta,
+        state.y,
+        stop.theta,
+        stop.y,
+        stop.height,
+      ) <= 2.8
+    )
       return stop;
   }
   return null;

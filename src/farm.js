@@ -357,7 +357,6 @@ export function createFarm(parent) {
 
   // Roof glass custom geometry
   const roofGlassPositions = [];
-  const roofGlassNormals = [];
 
   for (let b = 0; b < numBays; b++) {
     const yA = yStart + b * bayDepth;
@@ -457,54 +456,106 @@ export function createFarm(parent) {
   const roofGlassMesh = new THREE.Mesh(roofGlassGeo, ghGlassMat);
   farmGroup.add(roofGlassMesh);
 
-  // Structural frame ribs & rafters at every bay division
+  // Structural frame ribs, rafters, collar ties, king posts, and longitudinal beams
+  const ghFrameGeo = new THREE.BoxGeometry(1, 1, 1);
+  const ghFrameCount = (numBays + 1) * 6 + 3;
+  const ghFrameMesh = new THREE.InstancedMesh(
+    ghFrameGeo,
+    ghSteelFrameMat,
+    ghFrameCount,
+  );
+  const mFrame = new THREE.Matrix4();
+  const beamZAxis = new THREE.Vector3(0, 0, 1);
+  const beamDir = new THREE.Vector3();
+  const beamMid = new THREE.Vector3();
+  const beamQuat = new THREE.Quaternion();
+  const beamScale = new THREE.Vector3();
+
+  function setBeamMatrix(matrix, p1, p2, thickness = 0.14) {
+    beamDir.subVectors(p2, p1);
+    const len = beamDir.length();
+    if (len < 1e-4) return false;
+    beamMid.addVectors(p1, p2).multiplyScalar(0.5);
+    beamDir.divideScalar(len);
+    beamQuat.setFromUnitVectors(beamZAxis, beamDir);
+    beamScale.set(thickness, thickness, len);
+    matrix.compose(beamMid, beamQuat, beamScale);
+    return true;
+  }
+
+  let frameIdx = 0;
   for (let k = 0; k <= numBays; k++) {
     const yK = yStart + k * bayDepth;
 
     // Vertical wall rib posts
-    addSurfaceBox(farmGroup, ghSteelFrameMat, 53.2, yK, 0.3, 0.3, 4.8, 0);
-    addSurfaceBox(farmGroup, ghSteelFrameMat, 74.8, yK, 0.3, 0.3, 4.8, 0);
+    setSurfaceMatrix(mFrame, 53.2 / RADIUS, yK, 0, 0.3, 0.3, 4.8);
+    ghFrameMesh.setMatrixAt(frameIdx++, mFrame);
+    setSurfaceMatrix(mFrame, 74.8 / RADIUS, yK, 0, 0.3, 0.3, 4.8);
+    ghFrameMesh.setMatrixAt(frameIdx++, mFrame);
 
     // Rafters
     const eaveW = surfacePos(53 / RADIUS, yK, 4.8);
     const ridge = surfacePos(64 / RADIUS, yK, 7.0);
     const eaveE = surfacePos(75 / RADIUS, yK, 4.8);
 
-    addWorldBeam(farmGroup, ghSteelFrameMat, eaveW, ridge, 0.16);
-    addWorldBeam(farmGroup, ghSteelFrameMat, ridge, eaveE, 0.16);
+    if (setBeamMatrix(mFrame, eaveW, ridge, 0.16)) {
+      ghFrameMesh.setMatrixAt(frameIdx++, mFrame);
+    }
+    if (setBeamMatrix(mFrame, ridge, eaveE, 0.16)) {
+      ghFrameMesh.setMatrixAt(frameIdx++, mFrame);
+    }
 
     // Collar tie truss beam at safe overhead height h = 5.4m
     const tieW = surfacePos(56.5 / RADIUS, yK, 5.4);
     const tieE = surfacePos(71.5 / RADIUS, yK, 5.4);
-    addWorldBeam(farmGroup, ghSteelFrameMat, tieW, tieE, 0.12);
+    if (setBeamMatrix(mFrame, tieW, tieE, 0.12)) {
+      ghFrameMesh.setMatrixAt(frameIdx++, mFrame);
+    }
 
     // Vertical king post from collar tie to ridge
     const tieMid = surfacePos(64 / RADIUS, yK, 5.4);
-    addWorldBeam(farmGroup, ghSteelFrameMat, tieMid, ridge, 0.12);
+    if (setBeamMatrix(mFrame, tieMid, ridge, 0.12)) {
+      ghFrameMesh.setMatrixAt(frameIdx++, mFrame);
+    }
   }
 
   // Ridge beam and eave beams along the full 36m length
-  addWorldBeam(
-    farmGroup,
-    ghSteelFrameMat,
-    surfacePos(64 / RADIUS, -232, 7.02),
-    surfacePos(64 / RADIUS, -196, 7.02),
-    0.18,
-  );
-  addWorldBeam(
-    farmGroup,
-    ghSteelFrameMat,
-    surfacePos(53 / RADIUS, -232, 4.8),
-    surfacePos(53 / RADIUS, -196, 4.8),
-    0.16,
-  );
-  addWorldBeam(
-    farmGroup,
-    ghSteelFrameMat,
-    surfacePos(75 / RADIUS, -232, 4.8),
-    surfacePos(75 / RADIUS, -196, 4.8),
-    0.16,
-  );
+  if (
+    setBeamMatrix(
+      mFrame,
+      surfacePos(64 / RADIUS, -232, 7.02),
+      surfacePos(64 / RADIUS, -196, 7.02),
+      0.18,
+    )
+  ) {
+    ghFrameMesh.setMatrixAt(frameIdx++, mFrame);
+  }
+  if (
+    setBeamMatrix(
+      mFrame,
+      surfacePos(53 / RADIUS, -232, 4.8),
+      surfacePos(53 / RADIUS, -196, 4.8),
+      0.16,
+    )
+  ) {
+    ghFrameMesh.setMatrixAt(frameIdx++, mFrame);
+  }
+  if (
+    setBeamMatrix(
+      mFrame,
+      surfacePos(75 / RADIUS, -232, 4.8),
+      surfacePos(75 / RADIUS, -196, 4.8),
+      0.16,
+    )
+  ) {
+    ghFrameMesh.setMatrixAt(frameIdx++, mFrame);
+  }
+
+  ghFrameMesh.count = frameIdx;
+  ghFrameMesh.instanceMatrix.needsUpdate = true;
+  ghFrameMesh.computeBoundingBox();
+  ghFrameMesh.computeBoundingSphere();
+  farmGroup.add(ghFrameMesh);
 
   // --- Interior Planter Beds & Hydroponic Crops ---
   // Beds leaving central aisle s[62,66] clear, height ~0.6m
@@ -1143,8 +1194,6 @@ export function createFarm(parent) {
 
   // 4 Tapered lattice tower legs (Base 2.4m, Top 0.9m, Height 11.2m)
   const towerHeight = 11.2;
-  const legGeo = new THREE.CylinderGeometry(0.06, 0.08, towerHeight, 6);
-  legGeo.rotateX(Math.PI / 2); // default along Z
   const legCorners = [
     [-1.1, -1.1, -0.4, -0.4],
     [1.1, -1.1, 0.4, -0.4],

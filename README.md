@@ -80,7 +80,7 @@ At a fixed spin rate, apparent gravity is proportional to radius. With inward he
 
 ## Mara and Skywalk ventilation
 
-Find **Mara Voss**, the high-visibility caretaker on the west side of Meridian plaza. Approach on foot and press **E** to speak with her and accept the job. The conversation closes when you walk away, pause, or after 14 seconds of game time; **E** nearby gives a reminder.
+Find **Mara Voss**, the civic caretaker in a dark uniform, cap, and gold badge on the west side of Meridian plaza. Approach on foot and press **E** to speak with her and accept the job. The conversation closes when you walk away, pause, or after 14 seconds of game time; **E** nearby gives a reminder.
 
 Take the street lift to the **9 m Skywalk**, follow its east branch north past the planter, and approach the ventilation unit using the clear west-side passage. Press **E** when prompted to reset its breaker. The intake fan starts spinning and its red status lamp turns green. Return to Mara and press **E** to report completion. The Civic Maintenance card tracks acceptance, repair, and reporting.
 
@@ -94,9 +94,11 @@ The Neighborhood Job card shows the seed destination, distance, and progress. De
 
 ## Local saves
 
-Discoveries use stable landmark IDs. Seed delivery saves its available/carrying/complete phase; civic maintenance saves acceptance, repair, and reporting; sunline maintenance saves available/isolated/replaced/complete. Mute preference is restored before entering without starting audio. A carried crate reappears when you enter, including aboard the trolley, not over the intro or pause screen. Saving happens on actual progress/preference changes and page exit, not every frame.
+Discoveries use stable landmark IDs. Seed delivery saves its available/carrying/complete phase; civic maintenance saves acceptance, repair, and reporting; sunline maintenance saves available/isolated/replaced/complete. Mute preference is restored before entering without starting audio. A carried crate reappears when you enter, including aboard the trolley, not over the intro or pause screen. Progress/preferences save immediately when they change; leaving an untouched older tab does not rewrite newer progress.
 
 Progress belongs to this browser and URL origin, using the existing **`new-dawn.save.v1`** localStorage record. Older saves without `sunlinePhase` start the new job without losing discoveries, cargo, civic maintenance, or mute preference. Different browsers, devices, ports, and development/preview URLs do not share saves. Player position and resident route positions are not saved: choose an endcap or neighborhood entrance when returning. Saved progress stays in the browser, not in the source repository.
+
+Use one active gameplay tab per origin: simultaneous progress changes in separate tabs are not merged. An idle stale tab can safely close, but an actual change in either active game writes that game’s current snapshot.
 
 **Start a new game** in the pause menu asks for confirmation, clears discoveries and all three jobs, and keeps your mute preference. Invalid/incompatible save data is normalized or reset with a **Save recovered** notice. If storage access or writing fails, **Saving unavailable** is shown; the current game remains playable but changes may not survive reload.
 
@@ -106,31 +108,36 @@ Both districts normally have warm habitat daylight, soft static building shadows
 
 Procedural Web Audio supplies quiet ventilation wind, irrigation water near the canal, pump hum near the utility yard and underground water plant, and footsteps while moving on foot. Wind is damped inside enclosed areas; the axial route adds a mechanical ambience using the existing graph. Trolley motion does not trigger walking footsteps. No audio files, microphone access, or external services are used.
 
-Sound starts only after entering. Press **M** or use **Sound** to mute; the saved preference also applies on the intro screen. Pause/blur suspends the audio clock, with short gain fades on ordinary mute/pause. Unmuting while paused does not start playback. If playback is blocked, **Enable Sound** retries from your gesture; unsupported Web Audio is shown as **Sound N/A** while the game remains playable.
+Sound starts only after entering. Press **M** or use **Sound** to mute; the saved preference also applies on the intro screen. Pause/blur suspends the audio clock, with short gain fades on ordinary mute/pause. Unmuting while paused does not start playback. Browsers without the optional gain-hold API use supported cancellation/fade operations. If playback is blocked, **Enable Sound** retries from your gesture; unavailable or terminally failed audio is shown as **Sound N/A** without stopping gameplay.
 
 ## Build and test
 
 ```sh
 npm test
+npx playwright install chromium
+npm run test:browser
 npm run build
 npm run preview
 ```
 
-The production files are in `dist/`. Serve that folder with an ordinary static web server. The development and preview servers bind only to the local machine.
+The Chromium install is a one-time development setup, not needed to play. Playwright is development-only; Three.js remains the only runtime dependency. Browser checks start an isolated Vite server on **127.0.0.1:4176**, use fresh browser contexts, and stop the test server afterward. Keep that port free; your normal demo server on 5173 is left alone.
+
+The production files are in `dist/`. Serve that folder with an ordinary static web server. Development and preview servers bind only to the local machine. The retained `checks/` fixtures are not part of the default production build.
 
 ## Where to iterate
 
 - `src/habitat.js`: cylinder radius, length, spawn point, eye height, gravity.
+- `src/cylinder-math.js`: allocation-free wrapped angles and explicit horizontal/height-aware physical distances.
 - `src/world.js`: background landscape, beacons, and district integration. Clears procedural scenery from both hand-built neighborhoods and combines solid collision footprints.
 - `src/village.js`: neighborhood buildings, market square, orchard, steps, overlook, and furniture.
-- `src/farm.js`: greenhouse interior, crop rows, irrigation crossings, utility yard, animated rotor and pump.
+- `src/farm.js`: greenhouse interior and instanced structural frame, crop rows, irrigation crossings, utility yard, animated rotor and pump.
 - `src/city-streets.js`: seven civic blocks, streets/plaza, instanced avenue furniture and trees, and wayfinding.
 - `src/city-tower.js`: accessible lobby/Skyroom, landmark silhouette, elevated viewing terraces, and lift structures.
 - `src/city-layout.js` and `src/city-transit.js`: fixed city bounds/landmarks and height/range-gated lift destinations.
 - `src/service-layout.js` and `src/service-level.js`: signed-depth bounds, stable discoveries, service pavilion, enclosed utility rooms, machinery, physical obstacles, and isolated underground lighting.
 - `src/sunline-layout.js` and `src/sunline-transit.js`: axial dimensions, relative-angle bounds, stable discoveries, and guarded endcap/dock transfers.
-- `src/sunline.js` and `src/sunline-state.js`: endcap hubs, sectional luminaire, rail corridor, trolley, emitter props, and three-step maintenance state.
-- `src/civic-primitives.js`: shared curved radial solids and procedural facade textures.
+- `src/sunline.js` and `src/sunline-state.js`: endcap hubs, sectional luminaire, rail corridor, trolley, two phase-repainted console textures, emitter props, and three-step maintenance state.
+- `src/civic-primitives.js`: shared curved radial solids, matching visual/collision construction, and procedural facade textures.
 - `src/atmosphere.js`: static sunlight/shadow cache configuration, local lights, fog, and procedural contact shading.
 - `src/district-lighting.js`: world-space regional daylight attenuation, per-world material/uniform ownership, and pause-safe power transitions; existing point lamps and emissive surfaces stay lit.
 - `src/soundscape.js`: lazy audio graph, location-aware ambience, footsteps, and serialized pause/mute lifecycle.
@@ -138,14 +145,15 @@ The production files are in `dist/`. Serve that folder with an ordinary static w
 - `src/delivery.js` and `src/delivery-layout.js`: delivery state, station coordinates, prompts, and pickup/carried/received crate props.
 - `src/maintenance-state.js`, `src/maintenance.js`, and `src/maintenance-layout.js`: caretaker conversations, maintenance progression/guards, unit location, fan and indicator visuals.
 - `src/save-game.js`: versioned local progress, discovery filtering, and explicit storage failure/recovery status.
-- `src/surface.js`: shared curved paving, surface-aligned boxes, instancing transforms, and canvas-texture signs.
-- `src/district-layout.js`: reserved district bounds, walking-route destinations, discovery radii, and hints.
+- `src/surface.js`: curved paving, surface-aligned boxes, instancing transforms, shared oriented panels, and fitted canvas-texture signs.
+- `src/district-layout.js` and `src/landmarks.js`: district bounds, discovery metadata, and the single combined catalog used by the world and save filtering.
 - `src/player.js`: cylindrical movement, radius-dependent gravity, camera/input, stepping, signed floor/wall/ceiling collision, and atomic pose/constraint changes. Secured and trolley modes retain collision-safe bounds without free flight. `groundHeight` selects the outermost support floor; `getState(target)` fills a reusable snapshot including local gravity and traversal mode.
-- `src/main.js`: game loop, pause state, district discovery, interaction input, HUD, and renderer.
+- `src/main.js`: lifecycle/input, change-driven HUD content, discovery/interactions, and active rendering with one-off paused/resize redraws.
 - `src/style.css` and `index.html`: interface.
-- `tests/residents.test.js`: visible gait continuity, raised-floor placement, viewpoint stops/resume, and caretaker position.
+- `tests/residents.test.js`: nonzero articulated gait through route wraps, raised-floor placement, viewpoint stops/resume, and live conversation anchors.
 - `tests/player.test.js`: deck fall capture, overhead clearance, constant physical collision size, underpass/step behavior, negative-floor support, radial jump differences, secured bounds, rail direction/input constraints, invalid transfers, and low-gravity fallback landing.
 - `tests/maintenance.test.js`, `tests/sunline.test.js`, and `tests/save-game.test.js`: maintenance transitions, physical range/floor/mode/airborne guards, angular wrapping, saved continuation, legacy migration, and corrupt/unavailable storage handling.
+- `checks/browser.spec.js`, `checks/world.html`, and `playwright.config.js`: retained real-browser lifecycle, audio, authored-world, and WebGL regressions.
 
 Coordinates use the Y axis along the cylinder. At angle `theta` and inward height `h` relative to the living surface (negative below it):
 
@@ -158,30 +166,15 @@ The habitat is deliberately compact: **360 m living-surface diameter × 900 m lo
 
 ## Verification
 
-The district’s complete three-stop route was walked with real Chromium keyboard input, including entering the glasshouse and climbing the overlook. A temporary scenario exercised the actual world collision data: both glasshouse doorways, side-wall blocking, canal bridge support (0.12 m), overlook stair ascent/descent (2.16 m), and deck railing blocking. Ray casts confirmed that paving remains above the faceted hull and the overlook benches sit above the deck (seat top 2.73 m). A separate scenario verified walking and sprinting up 0.18 m steps without changing the controller. Verification helpers are removed before delivery.
+| Check | Reproducible coverage |
+| --- | --- |
+| `npm test` | Controller support/ceilings/steps, radial gravity, secured/trolley controls, independent strafe, articulated gait, quest guards/transitions, height-aware navigation, save migration and storage errors |
+| `npm run test:browser` | Stale-tab exit/reset, native audio with the optional gain-hold API removed, terminal audio failure without lost gameplay, intro/pause/resize/resume rendering, paused lift travel, authored transfers/controller support, real-page service-layer switching, regional WebGL lighting and sign bounds |
+| `npm run build` | Production bundling; this does not replace browser rendering checks |
 
-The seed job was exercised in Chromium with real input: far-away and paused E presses did nothing; pickup showed the carried crate; pause hid it; returning to the landing point preserved cargo; delivery completed once and removed it from your hands. A temporary scenario checked state transitions, range and height/grounded guards, angular wrapping, and two minutes of resident route clearance against actual world solids. The corrected receiving sign and deposited crate were inspected in the rendered scene, and compact HUD cards were measured and viewed at 375 × 600 without overlap.
+The browser suite runs Chromium with real canvas/WebGL/audio, not fake rendering APIs. Its controlled world fixture exercises production geometry, controller, and transfer selectors independently of main-page input; lifecycle cases drive the real application. Missing-API coverage simulates the compatibility condition in Chromium, not a full Firefox or Safari run.
 
-The atmosphere pass was checked with actual WebGL rendering: one 2048-pixel shadow map, four local lights, cached later frames, and no dynamic meshes casting into the static bake. Native audio-output instrumentation verified nonzero, unclipped signals, indoor wind damping, no context before entering, no idle/airborne footsteps, muted movement silence, and a stopped clock while paused. A temporary scenario delayed real native resume/suspend completions to exercise rapid pause/mute/resume changes and disposal; latest requested state won. Unsupported audio and narrow controls were also exercised. Temporary verification pages are removed before delivery.
+Before a release, also walk the demo: repair SL-02 and revisit Nia; carry a seed crate through city and service lifts; check lighting and audio after pause/resume; and inspect job scrolling/conversation layout at 375 × 600. These visual/manual checks remain separate from the automated suite. Historical milestone reports live in the feature pull requests rather than an accumulating test-count diary.
 
-The city update was walked in the production build with real Chromium keyboard input: plaza, tower lobby, 42 m Skyroom, both skywalk branches, street lift, and ground underpass. Exploration reached 6/6 and seed delivery 2/2 without browser errors. Carried cargo persisted across entrance shortcuts and tower lift trips; pausing mid-trip held the floor and suspended audio, then resumed successfully. A temporary actual-world scenario checked finished-floor ray hits, raised-deck support and rail blocking, residential-canopy head clearance, solid city trunks, lift height/range/airborne guards, and the one-shadow-light/six-local-light budget. That page was removed. At 375 × 600, header controls and HUD cards did not overlap, and the intro's loading notice remained reachable by scrolling.
+The existing bundle-size warning is non-blocking. The frame uses instancing, console textures are repainted rather than retaining phase alternatives, and frozen intro/pause scenes do not continuously redraw. Performance still varies by device and viewpoint.
 
-The inhabited-city update passes **26 Node tests** and a production Chromium playthrough. Maintenance reached 3/3, delivery 2/2, and discovery 6/6; all restored after reload, as did mute and an in-progress carried crate. Native Web Audio instrumentation observed no context before entry, real activation after unmuting, and a stopped clock while paused. New Game cancellation preserved progress; confirmation cleared both jobs/discoveries without the outgoing page overwriting the reset, and kept mute. Storage-denied and corrupt-save startup paths stayed playable with explicit notices. No browser errors were observed.
-
-A temporary scenario advanced all ten characters against the actual world collision data for 7,200 frames, verified lobby entry/exit and viewpoint stops, ray-checked visible fan blades, and checked the unchanged six-local-light/one-shadow-light budget with no resident or equipment ghost casters. The page was removed. At 600 × 600, actual pointer-locked wheel and Page Up/Page Down scrolling reached the lower job card; Page Down also reached it at 375 × 600, with conversation and cards separated.
-
-The service-level update passes **31 Node tests** and a production Chromium walk through both utility rooms and the return lift. The actual controller/world scenario verifies surface support, signed lift landings, room doorways, all four outer boundaries, underground jump/landing, lighter Skyroom gravity, and airborne/wrong-floor/physical-distance lift guards. It also verifies legacy six-discovery saves alongside both jobs and new eight-discovery records. Targeted rays verify visible lift markings and interior-facing signs; actual rotor transforms and ray hits verify spinning machinery aligned in front of its casings. The scenario also checks the real pavilion lintel prevents head penetration and the one-shadow-map budget remains unchanged.
-
-Production browser checks also verify a carried seed crate remains visible after descent under the service lighting, pause/resume holds the underground floor and an in-progress lift, and returning restores surface daylight. The Skyroom HUD reads **0.767 g** with cargo intact. Both new discoveries, the carried crate, accepted maintenance job, and mute preference survive reload. At **375 × 600**, the compact **1.044 G · 8.0 m DOWN** readout remains visible above the scrollable HUD. No browser errors were observed. Temporary verification pages are removed before delivery.
-
-The sunline expansion was exercised in the production build with real Chromium input: Endcap A lift, console isolation, boarding, SL-02 replacement, full-length travel to Endcap B, dismounting, restoration, and return to the rim. The HUD read **0.056 G** axially and **1.000 G** on return. Holding drive while pausing stopped the trolley; resuming without a new key press did not restart it. Native audio-source instrumentation recorded no footsteps during rail travel and resumed footsteps while walking in the hub. Compact controls and gravity were viewed at **375 × 600**.
-
-A genuine older browser save restored six discoveries, a carried seed crate, an accepted civic job, and mute preference without a recovery notice. Isolation survived reload; completion later restored at **3/3**, with all three new discoveries and the old cargo/job intact. New Game cancellation preserved progress; confirmation cleared all three jobs and discoveries while retaining mute. No browser errors were observed.
-
-A temporary actual-world scenario verified both secured hubs, relative-angle seam bounds, both boarding directions, the full rail, continuous floor/roof protection, maintenance ordering and repeat guards, nine-section visibility, approach-sign ray hits, trolley/gate clearance, cargo preservation, and the unchanged one-shadow-light budget. The Node suite and focused low-gravity landing, clamped-teleport, and saved-replacement regressions were exercised; the low-gravity fixture now waits for landing rather than assuming surface-gravity timing. Temporary verification pages are removed before delivery.
-
-The district-power consequence update passes **51 Node tests** and a production Chromium playthrough. Native input exercised Greenway before and during the outage, SL-02 replacement and return travel, restored daylight, Nia’s emergency and thank-you conversations, seed pickup/carrying, and Mara’s existing job acceptance. Isolated, replaced, and completed states restored correctly across reloads; cargo, discoveries, civic progress, and mute remained intact. At **375 × 600**, the conversation and scrolling HUD retain a measured gap of more than 12 pixels rather than assuming a fixed dialogue height. No application browser errors were observed.
-
-An actual-world WebGL scenario checked separate online/offline worlds on one renderer, regional surface dimming, preserved point-lamp illumination, unchanged Meridian/opposite-side/underground pixels, both console approach rays, replacement remaining dark, gradual restoration, zero-delta pause, cached shadows, camera-attached cargo attenuation, and continued irrigation-indicator animation after material installation. The budget remains one shadow light, six surface point lights, and four isolated service lights. Temporary verification pages are removed before delivery.
-
-`npm run build` succeeds with the existing non-blocking bundle-size warning: **669.43 kB** minified JavaScript, **184.18 kB** gzipped. Performance varies by device and viewpoint.

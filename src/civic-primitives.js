@@ -95,6 +95,38 @@ export function addCivicBlock(
   return mesh;
 }
 
+export function addCivicSolid(
+  parent,
+  material,
+  obstacles,
+  s,
+  y,
+  width,
+  depth,
+  height,
+  base = 0,
+) {
+  const mesh = addCivicBlock(
+    parent,
+    material,
+    s,
+    y,
+    width,
+    depth,
+    height,
+    base,
+  );
+  obstacles.push({
+    theta: s / RADIUS,
+    y,
+    width,
+    depth,
+    height,
+    base,
+  });
+  return mesh;
+}
+
 // One facade texture replaces hundreds of separate window meshes per building.
 export function createFacadeMaterial(wallColor, windowColor, columns, rows) {
   const canvas = document.createElement("canvas");

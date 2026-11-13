@@ -1,5 +1,6 @@
 import * as THREE from "three";
 import { RADIUS } from "./habitat.js";
+import { wrappedDeltaTheta, horizontalDistance } from "./cylinder-math.js";
 import { CARETAKER } from "./maintenance-layout.js";
 
 // =============================================================================
@@ -465,10 +466,7 @@ function createLobbyPoints() {
 }
 
 function circularMean(a, b) {
-  let diff = b - a;
-  while (diff > Math.PI) diff -= Math.PI * 2;
-  while (diff < -Math.PI) diff += Math.PI * 2;
-  return a + diff * 0.5;
+  return a + wrappedDeltaTheta(b, a) * 0.5;
 }
 
 function buildPath(points, height = 0) {
@@ -566,9 +564,7 @@ function samplePath(path, dist, out) {
   out.y = seg.y0 + seg.dy * t;
 
   // Continuous analytic heading interpolation
-  let dHeading = seg.heading1 - seg.heading0;
-  if (dHeading > Math.PI) dHeading -= Math.PI * 2;
-  if (dHeading < -Math.PI) dHeading += Math.PI * 2;
+  const dHeading = wrappedDeltaTheta(seg.heading1, seg.heading0);
   out.heading = seg.heading0 + dHeading * t;
 }
 
@@ -1473,15 +1469,12 @@ export function createResidents(parent) {
       return null;
     }
 
-    const targetTheta = targetS / RADIUS;
-    const dTheta = Math.atan2(
-      Math.sin(playerState.theta - targetTheta),
-      Math.cos(playerState.theta - targetTheta),
-    );
-    const physicalRadius = Math.max(1, RADIUS - targetHeight);
-    const dist = Math.hypot(
-      dTheta * physicalRadius,
-      playerState.y - targetY,
+    const dist = horizontalDistance(
+      playerState.theta,
+      playerState.y,
+      targetS / RADIUS,
+      targetY,
+      targetHeight,
     );
     if (!(dist <= NIA_REACTION_RANGE)) return null;
 

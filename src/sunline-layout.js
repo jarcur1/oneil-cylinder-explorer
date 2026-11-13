@@ -3,7 +3,7 @@ import { RADIUS, LENGTH } from "./habitat.js";
 // The passage is behind the light when viewed from the main promenade.
 export const SPINE_THETA = Math.PI;
 export const AXIAL_HEIGHT = RADIUS - 10;
-export const SPINE_RADIUS = RADIUS - AXIAL_HEIGHT;
+const SPINE_RADIUS = RADIUS - AXIAL_HEIGHT;
 export const SPINE_ROOF_HEIGHT = AXIAL_HEIGHT + 4.5;
 export const axialArc = (metres) => metres * RADIUS / SPINE_RADIUS;
 export const axialAngle = (metres) => metres / SPINE_RADIUS;

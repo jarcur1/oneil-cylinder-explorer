@@ -9,11 +9,6 @@ export const CITY_BOUNDS = Object.freeze({
 });
 export const CITY_ARRIVAL = Object.freeze({ theta: 0, y: -78, height: 0 });
 export const TOWER = Object.freeze({
-  s: 48,
-  y: 35,
-  width: 26,
-  depth: 26,
-  height: 60,
   observationHeight: 42,
 });
 export const MAIN_LIFT = Object.freeze({ theta: 48 / RADIUS, y: 35 });

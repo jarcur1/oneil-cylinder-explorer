@@ -532,17 +532,17 @@ test("trolley mode drives rail-authoritatively with independent look, ignoring s
       "trolley moves at rail speed 18",
     );
 
-    // Strafe (A/D) must be ignored
+    // Strafe (A then D independently) must be ignored
     key("KeyW", false);
     const yStationary = state().y;
-    key("KeyA", true);
-    key("KeyD", true);
-    frames(20);
-    key("KeyA", false);
-    key("KeyD", false);
-    assert.equal(state().y, yStationary, "strafe input ignored on trolley");
-    assert.ok(Math.abs(Math.sin(state().theta - SPINE_THETA)) < 1e-6);
-
+    for (const strafeKey of ["KeyA", "KeyD"]) {
+      key(strafeKey, true);
+      frames(20);
+      key(strafeKey, false);
+      assert.equal(state().y, yStationary, `${strafeKey} strafe ignored on trolley`);
+      assert.equal(state().speed, 0, `${strafeKey} produces zero speed on trolley`);
+      assert.ok(Math.abs(Math.sin(state().theta - SPINE_THETA)) < 1e-6);
+    }
     // Jump and sprint must be ignored while driving
     key("KeyW", true);
     key("Space", true);
@@ -867,5 +867,28 @@ test("out-of-range teleport resolves support after clamping its position", () =>
     player.teleport({ theta: 0, y: 10000, height: 9 });
     assert.equal(state().height, 9);
     assert.equal(state().grounded, true);
+  });
+});
+
+test("independent A then D strafe moves opposite lateral directions at walking speed", () => {
+  scenario([], ({ player, key, frames, state }) => {
+    player.teleport({ theta: 0, y: -300, height: 0, yaw: 0 });
+
+    key("KeyA", true);
+    frames(10);
+    key("KeyA", false);
+    const afterA = { ...state() };
+    assert.ok(afterA.theta < -0.01, `KeyA strafes left (-theta), got ${afterA.theta}`);
+    assert.ok(Math.abs(afterA.speed - 7) < 0.01, `KeyA speed ${afterA.speed}`);
+    assert.ok(Math.abs(afterA.y - -300) < 1e-6, "KeyA preserves longitudinal y at yaw=0");
+
+    key("KeyD", true);
+    frames(10);
+    key("KeyD", false);
+    const afterD = { ...state() };
+    assert.ok(afterD.theta > afterA.theta + 0.01, `KeyD strafes right (+theta), got ${afterD.theta}`);
+    assert.ok(Math.abs(afterD.speed - 7) < 0.01, `KeyD speed ${afterD.speed}`);
+    assert.ok(Math.abs(afterD.theta) < 1e-3, `KeyD returns near start theta, got ${afterD.theta}`);
+    assert.ok(Math.abs(afterD.y - -300) < 1e-6, "KeyD preserves longitudinal y at yaw=0");
   });
 });
