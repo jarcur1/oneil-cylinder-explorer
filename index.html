@@ -22,6 +22,17 @@
         </div>
         <div class="top-controls">
           <button
+            id="map-toggle"
+            type="button"
+            class="glass-button"
+            aria-controls="habitat-map"
+            aria-expanded="false"
+            disabled
+            title="Open habitat map (G)"
+          >
+            G · MAP
+          </button>
+          <button
             id="sound"
             class="glass-button"
             aria-pressed="false"
@@ -58,6 +69,7 @@
             ><span><kbd>SPACE</kbd> Jump</span>
             <span><kbd>E</kbd> Interact</span>
             <span><kbd>M</kbd> Mute sound</span>
+            <span><kbd>G</kbd> Habitat map</span>
             <span><kbd>PGUP / PGDN</kbd> Scroll jobs</span>
             <span><kbd>W / S</kbd> Trolley drive / reverse</span>
           </div>
@@ -98,8 +110,8 @@
           <button id="new-game" class="text-button">Start a new game</button>
           <p class="fine-print">
             WASD · move &nbsp; Shift · sprint &nbsp; Space · jump<br />Mouse /
-            drag / arrows · look &nbsp; E · interact &nbsp; M · mute &nbsp; Esc
-            · pause <br />Trolley: W/S · drive/reverse · E · dock/service
+            drag / arrows · look &nbsp; E · interact &nbsp; G · map &nbsp; M ·
+            mute &nbsp; Esc · pause <br />Trolley: W/S · drive/reverse · E · dock/service
             <br />Wheel / PgUp / PgDn · scroll jobs
           </p>
           <p class="fine-print">
@@ -109,6 +121,25 @@
       </section>
       <div id="crosshair" aria-hidden="true" hidden>+</div>
       <div id="compact-physics" class="compact-physics" hidden></div>
+      <div id="waypoint" class="waypoint" hidden>
+        <div id="waypoint-indicator" class="waypoint-indicator">
+          <span class="waypoint-arrow" aria-hidden="true"></span>
+          <span class="waypoint-pip" aria-hidden="true"></span>
+          <div class="waypoint-chip">
+            <span id="waypoint-label" class="waypoint-label"></span>
+            <span class="waypoint-meta">
+              <span id="waypoint-distance" class="waypoint-distance"></span>
+              <span id="waypoint-level" class="waypoint-level"></span>
+            </span>
+          </div>
+        </div>
+        <span
+          id="waypoint-sr-status"
+          class="sr-only"
+          role="status"
+          aria-live="polite"
+        ></span>
+      </div>
       <div class="hud-cards">
         <aside id="mission" class="hud-panel" hidden>
           <p class="eyebrow">HABITAT WALK <span id="progress">0 / 11</span></p>

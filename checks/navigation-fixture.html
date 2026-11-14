@@ -1,0 +1,100 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>New Dawn · Navigation Component Fixture</title>
+  </head>
+  <body>
+    <main id="app">
+      <div id="viewport" aria-label="Navigation component test viewport"></div>
+      <div id="waypoint" class="waypoint" hidden></div>
+    </main>
+    <script type="module">
+      import "../src/style.css";
+      import * as THREE from "three";
+      import { VIEW_DISTANCE } from "../src/habitat.js";
+      import { surfacePos, surfaceUp } from "../src/surface.js";
+      import { createNavigation } from "../src/navigation.js";
+      import { createHabitatMap } from "../src/habitat-map.js";
+      import { createWaypoint } from "../src/waypoint.js";
+
+      const camera = new THREE.PerspectiveCamera(
+        75,
+        (window.innerWidth || 800) / (window.innerHeight || 600),
+        0.08,
+        VIEW_DISTANCE,
+      );
+
+      const navigation = createNavigation();
+      const waypointEl = document.getElementById("waypoint");
+      const waypoint = createWaypoint(camera, waypointEl);
+      const found = new Set();
+      const emptyJobs = { delivery: null, maintenance: null, sunline: null };
+      const waypointResult = {};
+
+      let playerState = {
+        theta: 0,
+        y: 0,
+        height: 0,
+        traversalMode: "walk",
+        grounded: true,
+      };
+      let closeNotifications = 0;
+
+      function buildSnapshot(state = playerState) {
+        return {
+          player: state,
+          found,
+          jobs: emptyJobs,
+          selection: navigation.getSelection(),
+          waypoint: navigation.getWaypoint(state, emptyJobs, waypointResult),
+        };
+      }
+
+      const map = createHabitatMap({
+        onSelect(selection) {
+          navigation.select(selection);
+          if (map.isOpen()) {
+            map.render(buildSnapshot());
+          }
+        },
+        onClose() {
+          closeNotifications++;
+          map.close();
+        },
+      });
+
+      window.addEventListener("resize", () => {
+        camera.aspect =
+          (window.innerWidth || 800) / (window.innerHeight || 600);
+        camera.updateProjectionMatrix();
+        if (map.isOpen()) {
+          map.render(buildSnapshot());
+        }
+      });
+
+      window.__navFixture = {
+        navigation,
+        map,
+        waypoint,
+        camera,
+        surfacePos,
+        surfaceUp,
+        setPlayerState(next) {
+          playerState = { ...playerState, ...next };
+        },
+        getPlayerState() {
+          return { ...playerState };
+        },
+        buildSnapshot,
+        getCloseNotifications() {
+          return closeNotifications;
+        },
+        resetCloseNotifications() {
+          closeNotifications = 0;
+        },
+      };
+    </script>
+  </body>
+</html>

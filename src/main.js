@@ -13,6 +13,9 @@ import { SERVICE_NAME, inServiceLevel } from "./service-layout.js";
 import { AXIAL_HEIGHT, ENDCAP_ARRIVAL, getAxialHub } from "./sunline-layout.js";
 import { getSunlineTransfer } from "./sunline-transit.js";
 import { LANDMARKS } from "./landmarks.js";
+import { createNavigation } from "./navigation.js";
+import { createHabitatMap } from "./habitat-map.js";
+import { createWaypoint } from "./waypoint.js";
 import {
   wrappedDeltaTheta,
   horizontalDistance,
@@ -21,9 +24,19 @@ import {
 const $ = (id) => document.getElementById(id);
 const ENDCAP_AREA_Y = LENGTH / 2 - 50;
 const startButton = $("start");
+const mapButton = $("map-toggle");
 startButton.disabled = true;
+if (mapButton) mapButton.disabled = true;
+let fatalError = false;
 
 function showError(error) {
+  fatalError = true;
+  if (mapButton) {
+    mapButton.disabled = true;
+    mapButton.setAttribute("aria-expanded", "false");
+  }
+  const pausePanel = $("pause-panel");
+  if (pausePanel) pausePanel.hidden = true;
   $("error").hidden = false;
   $("error-message").textContent = error.message || String(error);
   $("loading").textContent = "Habitat unavailable.";
@@ -51,6 +64,7 @@ try {
     intro: $("intro"),
     pausePanel: $("pause-panel"),
     pauseBtn: $("pause"),
+    mapBtn: mapButton,
     resumeBtn: $("resume"),
     resetBtn: $("reset"),
     visitEndcapBtn: $("visit-endcap"),
@@ -105,6 +119,7 @@ try {
     dialogue: $("dialogue"),
     dialogueName: $("dialogue-name"),
     dialogueText: $("dialogue-text"),
+    waypoint: $("waypoint"),
     jobStack: document.querySelector(".job-stack"),
     hudCards: document.querySelector(".hud-cards"),
   };
@@ -143,6 +158,17 @@ try {
   let activeDialogue = null;
   let dialogueUntil = 0;
   let saveWritten = false;
+  const navigation = createNavigation();
+  const waypointMarker = createWaypoint(camera, ui.waypoint);
+  const waypointResult = {};
+  const jobViews = {
+    delivery: null,
+    maintenance: null,
+    sunline: null,
+  };
+  let mapOpen = false;
+  let mapReturnMode = null;
+  let mapReturnFocus = null;
   const compactHUD = window.matchMedia("(max-width: 520px)");
   function setText(el, value) {
     const text = value ?? "";
@@ -290,8 +316,22 @@ try {
     if (status !== "blocked") saveProgress();
   }
 
-  function pause() {
+  function pause(options) {
+    if (fatalError) {
+      mapReturnMode = null;
+      mapReturnFocus = null;
+      mapOpen = false;
+      setAttr(ui.mapBtn, "aria-expanded", false);
+      ui.mapBtn.disabled = true;
+      if (habitatMap.isOpen()) habitatMap.close();
+      setHidden(ui.pausePanel, true);
+    }
     if (!playing) return;
+    const showPanel =
+      !fatalError &&
+      (options && typeof options.showPanel === "boolean"
+        ? options.showPanel
+        : !mapOpen);
     lockRequest++;
     playing = false;
     renderer.setAnimationLoop(null);
@@ -299,15 +339,16 @@ try {
     delivery.setActive(false);
     sunline.setActive(false);
     closeDialogue();
+    waypointMarker.hide();
     setHidden(ui.interaction, true);
     setHidden(ui.inventory, true);
-    setHidden(ui.pausePanel, false);
+    setHidden(ui.pausePanel, !showPanel);
     setHidden(ui.pauseBtn, true);
     setHidden(ui.crosshair, true);
     if (document.pointerLockElement === renderer.domElement)
       document.exitPointerLock();
-    ui.resumeBtn.focus();
-    renderScene();
+    if (showPanel) ui.resumeBtn.focus();
+    if (!fatalError) renderScene();
     syncAudio(() => soundscape.setActive(false));
   }
 
@@ -326,6 +367,7 @@ try {
   player.teleport(ENDCAP_ARRIVAL);
 
   function visitEndcap() {
+    if (fatalError || mapOpen || habitatMap.isOpen()) return;
     currentLift = null;
     ui.viewport.classList.remove("lift-travel");
     closeDialogue();
@@ -334,6 +376,7 @@ try {
   }
 
   function visitCity() {
+    if (fatalError || mapOpen || habitatMap.isOpen()) return;
     currentLift = null;
     ui.viewport.classList.remove("lift-travel");
     closeDialogue();
@@ -360,6 +403,7 @@ try {
   }
 
   function enter() {
+    if (fatalError || mapOpen || habitatMap.isOpen()) return;
     const request = ++lockRequest;
     playing = true;
     everLocked = false;
@@ -387,6 +431,135 @@ try {
       updateFooter(player.getState(playerState), locked);
     });
     syncAudio(() => soundscape.setActive(true));
+  }
+  function getJobViews(state) {
+    jobViews.delivery = delivery.getView(state);
+    jobViews.maintenance = maintenance.getView(state);
+    jobViews.sunline = sunline.getView(state);
+    return jobViews;
+  }
+
+  function buildMapSnapshot() {
+    const state = player.getState(playerState);
+    const jobs = getJobViews(state);
+    const selection = navigation.getSelection();
+    const waypoint = navigation.getWaypoint(state, jobs, waypointResult);
+    return {
+      player: state,
+      found,
+      jobs,
+      selection,
+      waypoint,
+    };
+  }
+
+  function handleMapSelect(selection) {
+    if (fatalError) return;
+    navigation.select(selection);
+    const snapshot = buildMapSnapshot();
+    if (habitatMap.isOpen()) {
+      habitatMap.render(snapshot);
+    }
+    if (playing && !mapOpen && snapshot.waypoint) {
+      waypointMarker.update(snapshot.player, snapshot.waypoint);
+    } else {
+      waypointMarker.hide();
+    }
+  }
+
+  function handleMapClose() {
+    closeMap();
+  }
+
+  const habitatMap = createHabitatMap({
+    onSelect: handleMapSelect,
+    onClose: handleMapClose,
+  });
+
+  function openMap() {
+    if (fatalError || mapOpen || habitatMap.isOpen() || ui.mapBtn.disabled)
+      return;
+    mapReturnFocus =
+      document.activeElement instanceof HTMLElement
+        ? document.activeElement
+        : null;
+    if (playing) {
+      mapReturnMode = "playing";
+      mapOpen = true;
+      pause({ showPanel: false });
+    } else if (!ui.intro.hidden) {
+      mapReturnMode = "intro";
+      mapOpen = true;
+    } else {
+      mapReturnMode = "pause";
+      mapOpen = true;
+      setHidden(ui.pausePanel, true);
+    }
+    waypointMarker.hide();
+    setAttr(ui.mapBtn, "aria-expanded", true);
+    habitatMap.open(buildMapSnapshot());
+  }
+
+  function restoreAfterMap(returnMode) {
+    if (fatalError) {
+      setHidden(ui.pausePanel, true);
+      return;
+    }
+    if (returnMode === "playing") {
+      if (!document.hidden) {
+        enter();
+        return;
+      }
+      setHidden(ui.pausePanel, false);
+      setHidden(ui.pauseBtn, true);
+      ui.resumeBtn.focus();
+      return;
+    }
+    if (returnMode === "pause") {
+      setHidden(ui.pausePanel, false);
+      if (
+        mapReturnFocus &&
+        mapReturnFocus.isConnected &&
+        !mapReturnFocus.disabled &&
+        !mapReturnFocus.closest("[hidden]")
+      ) {
+        mapReturnFocus.focus();
+      } else {
+        ui.resumeBtn.focus();
+      }
+      return;
+    }
+    if (returnMode === "intro") {
+      if (
+        mapReturnFocus &&
+        mapReturnFocus.isConnected &&
+        !mapReturnFocus.disabled &&
+        !mapReturnFocus.closest("[hidden]")
+      ) {
+        mapReturnFocus.focus();
+      } else {
+        startButton.focus();
+      }
+    }
+  }
+
+  function closeMap() {
+    if (!mapOpen && !habitatMap.isOpen()) return;
+    const returnMode = mapReturnMode;
+    mapOpen = false;
+    mapReturnMode = null;
+    setAttr(ui.mapBtn, "aria-expanded", false);
+    if (habitatMap.isOpen()) {
+      habitatMap.close();
+    }
+    restoreAfterMap(returnMode);
+    mapReturnFocus = null;
+  }
+
+  function toggleMap() {
+    if (fatalError || ui.mapBtn.disabled) return;
+    if (mapOpen || habitatMap.isOpen()) closeMap();
+    else openMap();
   }
 
   const rows = world.stops.map((landmark) => {
@@ -517,7 +690,8 @@ try {
         ? `${nearest.name} · ${Math.round(nearestDistance)} m. ${nearest.hint}`
         : "Habitat walk complete. Explore the endcaps, service spine, utility rooms, and neighborhoods.",
     );
-    const job = delivery.getView(state);
+    const jobs = getJobViews(state);
+    const job = jobs.delivery;
     if (ui.job.dataset.phase !== job.phase) {
       ui.job.dataset.phase = job.phase;
       setClass(ui.job, "complete", job.phase === "complete");
@@ -545,7 +719,7 @@ try {
       ui.jobDistance,
       job.target ? `${Math.round(job.distance)} m` : "THANK YOU",
     );
-    const civicJob = maintenance.getView(state);
+    const civicJob = jobs.maintenance;
     if (ui.maintenance.dataset.phase !== civicJob.phase) {
       ui.maintenance.dataset.phase = civicJob.phase;
       setClass(ui.maintenance, "complete", civicJob.phase === "complete");
@@ -558,7 +732,7 @@ try {
       ui.maintenanceDistance,
       civicJob.target ? `${Math.round(civicJob.distance)} m` : "THANK YOU",
     );
-    const lightJob = sunline.getView(state);
+    const lightJob = jobs.sunline;
     if (ui.sunlineJob.dataset.phase !== lightJob.phase) {
       ui.sunlineJob.dataset.phase = lightJob.phase;
       setClass(ui.sunlineJob, "complete", lightJob.phase === "complete");
@@ -602,20 +776,29 @@ try {
     setHidden(ui.inventory, !playing || !job.inventory || !!activeDialogue);
     setText(ui.inventoryLabel, job.inventory);
     if (elapsed >= toastUntil) setHidden(ui.toast, true);
+    const waypoint = navigation.getWaypoint(state, jobs, waypointResult);
+    if (playing && !mapOpen && waypoint) {
+      waypointMarker.update(state, waypoint);
+    } else {
+      waypointMarker.hide();
+    }
   }
 
   startButton.addEventListener("click", visitEndcap);
   ui.startCityBtn.addEventListener("click", visitCity);
   ui.visitEndcapBtn.addEventListener("click", visitEndcap);
   ui.startGreenwayBtn.addEventListener("click", () => {
+    if (fatalError || mapOpen || habitatMap.isOpen()) return;
     player.reset();
     enter();
   });
   ui.visitCityBtn.addEventListener("click", visitCity);
   ui.resumeBtn.addEventListener("click", enter);
   ui.pauseBtn.addEventListener("click", pause);
+  ui.mapBtn.addEventListener("click", toggleMap);
   ui.soundBtn.addEventListener("click", toggleSound);
   ui.resetBtn.addEventListener("click", () => {
+    if (fatalError || mapOpen || habitatMap.isOpen()) return;
     currentLift = null;
     ui.viewport.classList.remove("lift-travel");
     closeDialogue();
@@ -645,12 +828,33 @@ try {
     }
   });
   document.addEventListener("keydown", (event) => {
-    if (event.code === "Escape") pause();
+    if (event.code === "Escape") {
+      if (mapOpen || habitatMap.isOpen()) {
+        event.preventDefault();
+        closeMap();
+        return;
+      }
+      pause();
+      return;
+    }
+    if (
+      event.code === "KeyG" &&
+      !event.repeat &&
+      !event.ctrlKey &&
+      !event.metaKey &&
+      !event.altKey
+    ) {
+      if (fatalError || ui.mapBtn.disabled) return;
+      event.preventDefault();
+      toggleMap();
+      return;
+    }
     if (event.code === "KeyM" && !event.repeat) {
       event.preventDefault();
       toggleSound();
       return;
     }
+    if (mapOpen || habitatMap.isOpen()) return;
     if (playing && (event.code === "PageUp" || event.code === "PageDown")) {
       event.preventDefault();
       const scroller = getJobScroller();
@@ -711,7 +915,11 @@ try {
   renderer.domElement.addEventListener(
     "wheel",
     (event) => {
-      if (!playing || document.pointerLockElement !== renderer.domElement)
+      if (
+        !playing ||
+        mapOpen ||
+        document.pointerLockElement !== renderer.domElement
+      )
         return;
       const scroller = getJobScroller();
       const scale =
@@ -747,11 +955,21 @@ try {
     renderer.setPixelRatio(Math.min(window.devicePixelRatio, 1.75));
     renderer.setSize(window.innerWidth, window.innerHeight);
     fitDialogueHUD();
-    if (!playing) renderScene();
+    if (!playing && !fatalError) renderScene();
+    if (!fatalError && mapOpen && habitatMap.isOpen()) {
+      habitatMap.render(buildMapSnapshot());
+    }
   });
   renderer.domElement.addEventListener("webglcontextlost", (event) => {
     event.preventDefault();
-    pause();
+    fatalError = true;
+    mapReturnMode = null;
+    mapReturnFocus = null;
+    mapOpen = false;
+    setAttr(ui.mapBtn, "aria-expanded", false);
+    ui.mapBtn.disabled = true;
+    if (habitatMap.isOpen()) habitatMap.close();
+    pause({ showPanel: false });
     renderer.setAnimationLoop(null);
     showError(
       new Error("The graphics context was lost. Reload the page to restart."),
@@ -759,7 +977,7 @@ try {
   });
 
   function animate() {
-    if (!playing) return;
+    if (!playing || fatalError) return;
     const dt = Math.min(clock.getDelta(), 0.05);
     elapsed += dt;
     if (currentLift && !travelMoved && elapsed >= travelAt) {
@@ -797,6 +1015,8 @@ try {
   startButton.disabled = false;
   ui.startCityBtn.disabled = false;
   ui.startGreenwayBtn.disabled = false;
+  setAttr(ui.mapBtn, "aria-expanded", false);
+  ui.mapBtn.disabled = false;
   ui.loading.textContent =
     "Habitat ready. Your boots are the right way down.";
 } catch (error) {

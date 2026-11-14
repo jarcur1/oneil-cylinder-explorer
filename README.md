@@ -26,8 +26,9 @@ Open the local URL printed by Vite (normally http://127.0.0.1:5173). Do not open
 | Shift                          | Sprint outside secured axial areas                   |
 | Space                          | Jump outside secured axial areas                     |
 | E                              | Talk / service / cargo / lifts / board or dock        |
+| G / Map button                 | Open or close the layered habitat map                |
 | M / Sound button               | Mute or unmute all audio                             |
-| Escape                         | Pause and release the mouse                          |
+| Escape                         | Close the map if open; otherwise pause and release mouse |
 | Arrow keys                     | Look without mouse capture                           |
 | Left-click + drag on the scene | Look if mouse capture is unavailable                 |
 | Wheel / Page Up / Page Down    | Scroll the job cards, including while mouse-captured |
@@ -35,6 +36,26 @@ Open the local URL printed by Vite (normally http://127.0.0.1:5173). Do not open
 Choose **Enter Endcap A** for the new maintenance route, **Or visit Meridian** for the city entrance, or **Or start in Greenway Commons** for the original landing. In Greenway, follow the promenade into **Market square**, take the east lane to **Glasshouse 01**, and follow the ORCHARD sign west to the stepped **Orchard overlook**. The Habitat Walk records **11 stops**: six neighborhood landmarks, two utility rooms, both endcap hubs, and the sunline service station. Discoveries require the correct floor and physical proximity.
 
 The pause menu offers Endcap A and both neighborhood entrances without erasing discoveries or a carried seed crate. Switching away pauses gameplay, residents, world animation, and sound. Local at-rest gravity is shown in the HUD; negative height is labeled **DOWN** relative to the living surface.
+
+## Habitat map and waypoints
+
+Press **G** (without Ctrl/Meta modifiers) or click **Map** in the top bar once the scene finishes booting to open an unrolled 2D habitat map. Opening the map from gameplay pauses simulation, releases mouse capture, hides the HUD waypoint and carried crate view, and suppresses the pause menu; opening it from the intro or pause screen keeps you in that menu when you close it. **Escape** or the close button returns to your previous mode (re-entering mouse-captured play only when you close explicitly from gameplay while the tab is visible). While the map is open, world **E** interactions, jumping, and job-card scrolling are blocked, **Tab** navigates within the modal dialog, and **M** retains paused mute behavior.
+
+The map separates the cylinder into **three elevation layers**:
+
+- **Surface & elevated**: Ground-level neighborhoods (`0 m`), **Orchard overlook** (`+2.16 m` collider floor), and **Meridian** elevated decks (**Skywalk · 9 m** and **Skyroom · 42 m**, shown with elevation badges).
+- **Underground service**: Meridian’s enclosed utility corridor and machinery rooms (`−8 m`).
+- **Axial maintenance**: Endcaps A & B hubs, the **1720 m** rail corridor, and the SL-02 service station (`+350 m`).
+
+The unrolled projection wraps circumference `theta` across `[−π/2, 3π/2]` with north / Endcap B at the top so neither the `θ = 0` neighborhoods nor the `θ = π` axial spine touches the seam. It displays district bounds, your current player position, visited vs. unvisited landmark status, vertical lift and axial trolley links, and keyboard-accessible destination/job lists alongside the SVG map so small or overlapping pins stay usable on desktop and compact **375 × 600** screens without horizontal overflow.
+
+Select any destination (all 11 landmarks plus lift, rim, and dock access points) or track one of the three active jobs (**Seed Delivery**, **Civic Maintenance**, or **Sunline Engineering**), or clear tracking at any time. Waypoints use **authored access guidance rather than a generic GPS pathfinder**:
+
+- Targets on your current layer point directly to the destination (with Orchard overlook using its stepped west-lane approach).
+- Cross-floor targets direct you to the appropriate transfer first: the **Service Access** pavilion lift for `−8 m`, the **Civic tower lobby** or **Skywalk** street lift for `+42 m` or `+9 m`, the nearer **Endcap rim** lift to reach `+350 m`, the endcap **trolley dock** when heading from an axial hub toward SL-02, or the nearest hub **return lift** when descending from the axis.
+- Tracking a job automatically follows its current phase and target, and clears once the job is complete.
+
+During active play, a lightweight on-screen (or viewport-edge-clamped when off-screen or behind you) waypoint indicator shows the guided target or access point name, wrapped 3D distance, and elevation cue without blocking core controls or viewport clicks. Active waypoint selection is **ephemeral runtime state**: it is not saved to `localStorage` and requires no save migration.
 
 ## Endcaps and sunline maintenance
 
@@ -96,7 +117,7 @@ The Neighborhood Job card shows the seed destination, distance, and progress. De
 
 Discoveries use stable landmark IDs. Seed delivery saves its available/carrying/complete phase; civic maintenance saves acceptance, repair, and reporting; sunline maintenance saves available/isolated/replaced/complete. Mute preference is restored before entering without starting audio. A carried crate reappears when you enter, including aboard the trolley, not over the intro or pause screen. Progress/preferences save immediately when they change; leaving an untouched older tab does not rewrite newer progress.
 
-Progress belongs to this browser and URL origin, using the existing **`new-dawn.save.v1`** localStorage record. Older saves without `sunlinePhase` start the new job without losing discoveries, cargo, civic maintenance, or mute preference. Different browsers, devices, ports, and development/preview URLs do not share saves. Player position and resident route positions are not saved: choose an endcap or neighborhood entrance when returning. Saved progress stays in the browser, not in the source repository.
+Progress belongs to this browser and URL origin, using the existing **`new-dawn.save.v1`** localStorage record. Older saves without `sunlinePhase` start the new job without losing discoveries, cargo, civic maintenance, or mute preference. Active map/waypoint tracking selection is ephemeral and is not persisted in the save record (no save migration required). Different browsers, devices, ports, and development/preview URLs do not share saves. Player position and resident route positions are not saved: choose an endcap or neighborhood entrance when returning. Saved progress stays in the browser, not in the source repository.
 
 Use one active gameplay tab per origin: simultaneous progress changes in separate tabs are not merged. An idle stale tab can safely close, but an actual change in either active game writes that game’s current snapshot.
 
@@ -134,9 +155,9 @@ The production files are in `dist/`. Serve that folder with an ordinary static w
 - `src/farm.js`: greenhouse interior and instanced structural frame, crop rows, irrigation crossings, utility yard, animated rotor and pump.
 - `src/city-streets.js`: seven civic blocks, streets/plaza, instanced avenue furniture and trees, and wayfinding.
 - `src/city-tower.js`: accessible lobby/Skyroom, landmark silhouette, elevated viewing terraces, and lift structures.
-- `src/city-layout.js` and `src/city-transit.js`: fixed city bounds/landmarks and height/range-gated lift destinations.
-- `src/service-layout.js` and `src/service-level.js`: signed-depth bounds, stable discoveries, service pavilion, enclosed utility rooms, machinery, physical obstacles, and isolated underground lighting.
-- `src/sunline-layout.js` and `src/sunline-transit.js`: axial dimensions, relative-angle bounds, stable discoveries, and guarded endcap/dock transfers.
+- `src/city-layout.js` and `src/city-transit.js`: fixed city bounds/landmarks (including explicit floor `height`), and canonical exported `CITY_LIFT_STOPS` height/range-gated lift destinations.
+- `src/service-layout.js` and `src/service-level.js`: signed-depth bounds, stable discoveries with explicit `SERVICE_FLOOR` `height`, service pavilion, enclosed utility rooms, machinery, physical obstacles, and isolated underground lighting.
+- `src/sunline-layout.js` and `src/sunline-transit.js`: axial dimensions, relative-angle bounds, stable discoveries, and canonical exported `SUNLINE_TRANSFERS` endcap/dock transfers.
 - `src/sunline.js` and `src/sunline-state.js`: endcap hubs, sectional luminaire, rail corridor, trolley, two phase-repainted console textures, emitter props, and three-step maintenance state.
 - `src/civic-primitives.js`: shared curved radial solids, matching visual/collision construction, and procedural facade textures.
 - `src/atmosphere.js`: static sunlight/shadow cache configuration, local lights, fog, and procedural contact shading.
@@ -145,17 +166,20 @@ The production files are in `dist/`. Serve that folder with an ordinary static w
 - `src/residents.js`: nine walking routes, shared character models, altitude-aware gait, viewpoint dwells, stationary caretaker Mara, and Nia’s phase-aware conversation with a live moving anchor.
 - `src/delivery.js` and `src/delivery-layout.js`: delivery state, station coordinates, prompts, and pickup/carried/received crate props.
 - `src/maintenance-state.js`, `src/maintenance.js`, and `src/maintenance-layout.js`: caretaker conversations, maintenance progression/guards, unit location, fan and indicator visuals.
+- `src/navigation.js`: pure 3-layer map metadata, unrolled cylindrical projection, `NAV_TARGETS`, `NAV_CONNECTIONS`, authored cross-floor access guidance, and ephemeral waypoint tracking.
+- `src/habitat-map.js` and `src/waypoint.js`: native accessible 2D map dialog (`<dialog>`) with 3D-free redraws and reusable-vector HUD waypoint projection/edge clamping.
 - `src/save-game.js`: versioned local progress, discovery filtering, and explicit storage failure/recovery status.
 - `src/surface.js`: curved paving, surface-aligned boxes, instancing transforms, shared oriented panels, and fitted canvas-texture signs.
-- `src/district-layout.js` and `src/landmarks.js`: district bounds, discovery metadata, and the single combined catalog used by the world and save filtering.
+- `src/district-layout.js` and `src/landmarks.js`: district bounds, discovery metadata with explicit floor `height`, and the single combined catalog used by the world and save filtering.
 - `src/player.js`: cylindrical movement, radius-dependent gravity, camera/input, stepping, signed floor/wall/ceiling collision, and atomic pose/constraint changes. Secured and trolley modes retain collision-safe bounds without free flight. `groundHeight` selects the outermost support floor; `getState(target)` fills a reusable snapshot including local gravity and traversal mode.
-- `src/main.js`: lifecycle/input, `VIEW_DISTANCE` camera far plane, length-derived endcap HUD area bands, change-driven HUD content, discovery/interactions, and active rendering with one-off paused/resize redraws.
-- `src/style.css` and `index.html`: interface.
+- `src/main.js`: lifecycle/input, `VIEW_DISTANCE` camera far plane, length-derived endcap HUD area bands, map/waypoint lifecycle integration, change-driven HUD content, discovery/interactions, and active rendering with one-off paused/resize redraws.
+- `src/style.css` and `index.html`: interface, map modal, and waypoint marker styling/markup.
 - `tests/habitat.test.js`: expanded cylinder dimensions, surface `1.000 g`, district placement separation, and world bounds.
+- `tests/navigation.test.js`: unrolled projection seam wrapping, layer classification, authored cross-floor guidance, live job target tracking, and floor-aware arrival checks.
 - `tests/residents.test.js`: nonzero articulated gait through route wraps, raised-floor placement, viewpoint stops/resume, and live conversation anchors.
 - `tests/player.test.js`: deck fall capture, overhead clearance, constant physical collision size, underpass/step behavior, negative-floor support, radial jump differences, secured bounds, rail direction/input constraints, invalid transfers, and low-gravity fallback landing.
 - `tests/maintenance.test.js`, `tests/sunline.test.js`, and `tests/save-game.test.js`: maintenance transitions, physical range/floor/mode/airborne guards, angular wrapping, saved continuation, legacy migration, and corrupt/unavailable storage handling.
-- `checks/browser.spec.js`, `checks/world.html`, and `playwright.config.js`: retained real-browser lifecycle, audio, authored-world, and WebGL regressions.
+- `checks/browser.spec.js`, `checks/navigation.spec.js`, `checks/world.html`, and `playwright.config.js`: retained real-browser lifecycle, audio, authored-world, map/waypoint, compact layout, and WebGL regressions.
 
 Coordinates use the Y axis along the cylinder. At angle `theta` and inward height `h` relative to the living surface (negative below it):
 
@@ -170,8 +194,8 @@ The habitat measures **720 m living-surface diameter (`R = 360 m`) × 1800 m lon
 
 | Check | Reproducible coverage |
 | --- | --- |
-| `npm test` | Controller support/ceilings/steps, radial gravity, secured/trolley controls, independent strafe, articulated gait, quest guards/transitions, height-aware navigation, expanded cylinder/district placements, save migration and storage errors |
-| `npm run test:browser` | Stale-tab exit/reset, native audio with the optional gain-hold API removed, terminal audio failure without lost gameplay, intro/pause/resize/resume rendering, paused lift travel, authored transfers/controller support, real-page service-layer switching, regional WebGL lighting and sign bounds |
+| `npm test` | Controller support/ceilings/steps, radial gravity, secured/trolley controls, independent strafe, articulated gait, quest guards/transitions, height-aware navigation, map projection and cross-floor guidance, expanded cylinder/district placements, save migration and storage errors |
+| `npm run test:browser` | Stale-tab exit/reset, native audio with the optional gain-hold API removed, terminal audio failure without lost gameplay, intro/pause/resize/resume rendering, paused lift travel, authored transfers/controller support, real-page service-layer switching, regional WebGL lighting and sign bounds, layered map open/close lifecycle, focus trapping, waypoint selection and live job tracking, and compact 375 × 600 layout |
 | `npm run build` | Production bundling; this does not replace browser rendering checks |
 
 The browser suite runs Chromium with real canvas/WebGL/audio, not fake rendering APIs. Its controlled world fixture exercises production geometry, controller, and transfer selectors independently of main-page input; lifecycle cases drive the real application. Missing-API coverage simulates the compatibility condition in Chromium, not a full Firefox or Safari run.
