@@ -8,6 +8,7 @@ import {
   SUNLINE_TRACK_MAX_Y,
   SPINE_THETA,
 } from "./sunline-layout.js";
+import { TRAM_HEIGHT, TRAM_STOPS } from "./tram-layout.js";
 import {
   MAP_LAYERS,
   getNavigationLayer,
@@ -31,6 +32,8 @@ const JOB_META = Object.freeze([
   { id: "maintenance", fallbackTitle: "Civic maintenance" },
   { id: "sunline", fallbackTitle: "Sunline engineering" },
 ]);
+
+const TRAM_STOP_BY_ID = new Map(TRAM_STOPS.map((stop) => [stop.id, stop]));
 
 const _proj = { x: 0, y: 0 };
 
@@ -76,6 +79,40 @@ function formatDegrees(theta) {
 
 function formatAxialMetres(y) {
   return `${Math.round(y + LENGTH / 2)} m`;
+}
+
+function formatDurationSeconds(seconds) {
+  if (!Number.isFinite(seconds)) return "";
+  const clamped = Math.max(0, seconds);
+  return clamped < 1 && clamped > 0 ? `${clamped.toFixed(1)}s` : `${Math.ceil(clamped)}s`;
+}
+
+function formatTramStatus(tram) {
+  if (!tram || typeof tram !== "object") {
+    return "Route: Greenway Gateway ↔ Civic Tower · Live telemetry unavailable";
+  }
+  const currentStop = tram.stationId
+    ? TRAM_STOP_BY_ID.get(tram.stationId)?.name ?? tram.stationId
+    : null;
+  const nextStop = tram.nextStationId
+    ? TRAM_STOP_BY_ID.get(tram.nextStationId)?.name ?? tram.nextStationId
+    : null;
+  const dirLabel = tram.direction < 0 ? "Southbound" : "Northbound";
+
+  if (tram.phase === "dwell" && currentStop) {
+    const dep = Number.isFinite(tram.departureIn)
+      ? ` (${formatDurationSeconds(tram.departureIn)})`
+      : "";
+    return `Docked at ${currentStop}${dep}${nextStop ? ` · Next: ${nextStop} (${dirLabel})` : ""}`;
+  }
+
+  const speedText = Number.isFinite(tram.speed)
+    ? `${Math.round(Math.max(0, tram.speed))} m/s`
+    : "En route";
+  const arr = Number.isFinite(tram.arrivalIn)
+    ? ` in ${formatDurationSeconds(tram.arrivalIn)}`
+    : "";
+  return `${dirLabel} · ${speedText}${nextStop ? ` · Next: ${nextStop}${arr}` : ""}`;
 }
 
 export function createHabitatMap({ onSelect, onClose } = {}) {
@@ -175,6 +212,22 @@ export function createHabitatMap({ onSelect, onClose } = {}) {
 
   statusBar.append(playerSummaryEl, waypointSummaryEl);
 
+  const tramStatusBar = document.createElement("div");
+  tramStatusBar.id = "habitat-map-tram-status";
+  tramStatusBar.className = "habitat-map-tram-status";
+  tramStatusBar.setAttribute("data-tram-status", "");
+  const tramStatusHead = document.createElement("span");
+  tramStatusHead.className = "habitat-map-tram-head";
+  const tramStatusTitle = document.createElement("strong");
+  tramStatusTitle.textContent = "CIVILIAN TRAM";
+  const tramElevBadge = document.createElement("span");
+  tramElevBadge.className = "map-badge map-badge-elev";
+  tramElevBadge.textContent = formatElevationBadge(TRAM_HEIGHT) || "+13 m";
+  tramStatusHead.append(tramStatusTitle, tramElevBadge);
+  const tramStatusText = document.createElement("span");
+  tramStatusText.className = "habitat-map-tram-text";
+  tramStatusBar.append(tramStatusHead, tramStatusText);
+
   const svgWrap = document.createElement("div");
   svgWrap.className = "habitat-map-svg-wrap";
 
@@ -208,6 +261,7 @@ export function createHabitatMap({ onSelect, onClose } = {}) {
     { cls: "legend-unvisited", label: "Unvisited landmark" },
     { cls: "legend-access", label: "Lift / access / dock" },
     { cls: "legend-link", label: "Transit / rail link" },
+    { cls: "legend-tram", label: "Tram route / car" },
   ];
   for (const item of legendItems) {
     const li = document.createElement("li");
@@ -220,7 +274,7 @@ export function createHabitatMap({ onSelect, onClose } = {}) {
     legend.appendChild(li);
   }
 
-  canvasPanel.append(statusBar, svgWrap, legend);
+  canvasPanel.append(statusBar, tramStatusBar, svgWrap, legend);
 
   // Sidebar: jobs + layer destination list
   const sidebar = document.createElement("aside");
@@ -887,7 +941,10 @@ export function createHabitatMap({ onSelect, onClose } = {}) {
             width: 8,
             height: 8,
             rx: 1.5,
-            class: "map-glyph-access",
+            class:
+              target.kind === "tram"
+                ? "map-glyph-access map-glyph-tram"
+                : "map-glyph-access",
           }),
         );
       }
@@ -1021,6 +1078,60 @@ export function createHabitatMap({ onSelect, onClose } = {}) {
       });
     }
 
+    // Read-only tram vehicle marker on its actual layer
+    const tramGroup = svgEl("g", {
+      class: "map-tram-layer",
+      "pointer-events": "none",
+    });
+    const tram = snapshot?.tram;
+    if (
+      tram &&
+      Number.isFinite(tram.theta) &&
+      Number.isFinite(tram.y) &&
+      Number.isFinite(tram.height)
+    ) {
+      const tramLayer = getNavigationLayer(tram.height);
+      if (tramLayer === activeLayer) {
+        const tp = toSvg(tram.theta, tram.y);
+        const marker = svgEl("g", {
+          class: `map-tram-marker${tram.phase === "dwell" ? " is-docked" : ""}`,
+          "data-tram-marker": tram.stationId || "civilian-tram",
+          "data-tram-phase": tram.phase || "moving",
+          "data-tram-direction": tram.direction < 0 ? "south" : "north",
+        });
+        marker.appendChild(svgEl("title", {}, formatTramStatus(tram)));
+        marker.appendChild(
+          svgEl("rect", {
+            x: (tp.x - 5).toFixed(1),
+            y: (tp.y - 8).toFixed(1),
+            width: 10,
+            height: 16,
+            rx: 2.5,
+            class: "map-tram-car",
+          }),
+        );
+        const noseY = tram.direction < 0 ? tp.y + 4 : tp.y - 4;
+        marker.appendChild(
+          svgEl("circle", {
+            cx: tp.x.toFixed(1),
+            cy: noseY.toFixed(1),
+            r: 1.8,
+            class: "map-tram-headlight",
+          }),
+        );
+        tramGroup.appendChild(marker);
+
+        pendingPinLabels.push({
+          priority: 4,
+          x: tp.x,
+          y: tp.y,
+          text: tram.stationId ? "TRAM (DOCKED · +13 m)" : "TRAM (+13 m)",
+          className: "map-tram-label",
+          targetGroup: tramGroup,
+        });
+      }
+    }
+
     pendingPinLabels.sort((a, b) => a.priority - b.priority);
     for (const label of pendingPinLabels) {
       placePointLabel(
@@ -1032,7 +1143,7 @@ export function createHabitatMap({ onSelect, onClose } = {}) {
       );
     }
 
-    svgContent.append(pinsGroup, labelsGroup, playerGroup);
+    svgContent.append(pinsGroup, labelsGroup, tramGroup, playerGroup);
   }
 
   function renderLists(snapshot) {
@@ -1113,13 +1224,21 @@ export function createHabitatMap({ onSelect, onClose } = {}) {
         elevTag.textContent = elev;
         badges.appendChild(elevTag);
       }
+      if (target.kind === "tram") {
+        const tramLiftTag = document.createElement("span");
+        tramLiftTag.className = "map-badge map-badge-elev";
+        tramLiftTag.textContent = `LIFT TO ${formatElevationBadge(TRAM_HEIGHT) || "+13 m"}`;
+        badges.appendChild(tramLiftTag);
+      }
 
       const statusTag = document.createElement("span");
       statusTag.className = isLandmark
         ? visited
           ? "map-badge map-badge-visited"
           : "map-badge map-badge-unvisited"
-        : "map-badge map-badge-access";
+        : target.kind === "tram"
+          ? "map-badge map-badge-access map-badge-tram"
+          : "map-badge map-badge-access";
       statusTag.textContent = isLandmark
         ? visited
           ? "VISITED"
@@ -1280,6 +1399,28 @@ export function createHabitatMap({ onSelect, onClose } = {}) {
       waypointSummaryEl.textContent = `WAYPOINT: ${wp.name}${step} · ${distText}`;
     } else {
       waypointSummaryEl.textContent = "WAYPOINT: None selected";
+    }
+
+    const showTram = activeLayer === "surface";
+    tramStatusBar.hidden = !showTram;
+    if (showTram) {
+      const tram = snapshot.tram;
+      const hasValidTram = Boolean(
+        tram &&
+          Number.isFinite(tram.theta) &&
+          Number.isFinite(tram.y) &&
+          Number.isFinite(tram.height),
+      );
+      const tramElev = hasValidTram ? formatElevationBadge(tram.height) : null;
+      tramElevBadge.hidden = !tramElev;
+      tramElevBadge.textContent = tramElev || "";
+      tramStatusText.textContent = hasValidTram
+        ? formatTramStatus(tram)
+        : formatTramStatus(null);
+    } else {
+      tramElevBadge.hidden = true;
+      tramElevBadge.textContent = "";
+      tramStatusText.textContent = "";
     }
 
     renderSvg(snapshot);

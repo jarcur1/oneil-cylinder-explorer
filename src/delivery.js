@@ -121,14 +121,15 @@ function createCrateLabelTexture() {
 
 /**
  * Checks whether the player meets interaction eligibility criteria:
- * - Must be grounded
+ * - Must be grounded in walk mode
  * - Feet height between 0 and 0.5m
  * - Wrapped ground distance <= station.range
  */
 function isEligible(playerState, station) {
   if (!playerState || !playerState.grounded) return false;
+  if (playerState.traversalMode !== "walk") return false;
   const h = playerState.height;
-  if (h < 0 || h > 0.5) return false;
+  if (!(h >= 0 && h <= 0.5)) return false;
   const dist = horizontalDistance(
     playerState.theta,
     playerState.y,

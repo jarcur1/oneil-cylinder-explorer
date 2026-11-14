@@ -21,6 +21,7 @@ import {
 } from "../src/sunline-layout.js";
 import { CITY_LIFT_STOPS, getCityLift } from "../src/city-transit.js";
 import { SUNLINE_TRANSFERS, getSunlineTransfer } from "../src/sunline-transit.js";
+import { TRAM_THETA, TRAM_HEIGHT, TRAM_STOPS } from "../src/tram-layout.js";
 import { DELIVERY_STATIONS } from "../src/delivery-layout.js";
 import { createDelivery } from "../src/delivery.js";
 import { createMaintenanceState } from "../src/maintenance-state.js";
@@ -199,6 +200,18 @@ test("transit descriptors and navigation static tables are canonical, unique, an
     assert.ok(targetIds.has(stop.id), `Missing sunline transfer ${stop.id}`);
   }
 
+  // Canonical 5 tram ground station stops exist as kind "tram" (not landmarks)
+  for (const stop of TRAM_STOPS) {
+    const target = NAV_TARGETS.find((t) => t.id === stop.id);
+    assert.ok(target, `Missing tram target ${stop.id}`);
+    assert.equal(target.kind, "tram");
+    assert.equal(target.height, 0);
+    assert.equal(target.layer, "surface");
+    assert.equal(target.theta, stop.theta);
+    assert.equal(target.y, stop.y);
+    assert.equal(target.name, stop.name);
+  }
+
   // Connections cover all vertical lifts + Endcap A<->B trolley link
   const trolleyLink = NAV_CONNECTIONS.find((c) => c.type === "trolley");
   assert.ok(trolleyLink);
@@ -208,6 +221,16 @@ test("transit descriptors and navigation static tables are canonical, unique, an
   assert.equal(trolleyLink.to.y, ENDCAP_HUBS[1].trolley.y);
   const liftLinks = NAV_CONNECTIONS.filter((c) => c.type === "lift");
   assert.equal(liftLinks.length, 5);
+  const tramLinks = NAV_CONNECTIONS.filter((c) => c.type === "tram");
+  assert.equal(tramLinks.length, 1);
+  assert.equal(tramLinks[0].from.layer, "surface");
+  assert.equal(tramLinks[0].to.layer, "surface");
+  assert.equal(tramLinks[0].from.theta, TRAM_THETA);
+  assert.equal(tramLinks[0].to.theta, TRAM_THETA);
+  assert.equal(tramLinks[0].from.height, TRAM_HEIGHT);
+  assert.equal(tramLinks[0].to.height, TRAM_HEIGHT);
+  assert.equal(tramLinks[0].from.y, TRAM_STOPS[0].y);
+  assert.equal(tramLinks[0].to.y, TRAM_STOPS[TRAM_STOPS.length - 1].y);
 
   // Local transit selectors retain exact guards after migration
   assert.equal(
@@ -683,4 +706,234 @@ test("live delivery, maintenance, and sunline jobs follow actual state/view adva
       assert.equal(nav.getWaypoint(state(), views(state())), null);
     },
   );
+});
+
+test("tram targets, riding disembark guidance, wrong-level rejection, and ground final-leg arrival", () => {
+  const nav = createNavigation();
+  const gateway = TRAM_STOPS[0];
+  const market = TRAM_STOPS[1];
+  const glasshouseStop = TRAM_STOPS[2];
+  const plazaStop = TRAM_STOPS[3];
+  const towerStop = TRAM_STOPS[4];
+
+  // 1. On-foot selection of a tram station guides to the ground pad and requires ground height to arrive
+  nav.select({ kind: "destination", id: market.id });
+  const onGroundFar = nav.getWaypoint(
+    { theta: 0, y: gateway.y, height: 0, traversalMode: "walk" },
+    {},
+  );
+  assert.equal(onGroundFar.arrived, false);
+  assert.equal(onGroundFar.guidance.theta, market.theta);
+  assert.equal(onGroundFar.guidance.y, market.y);
+  assert.equal(onGroundFar.guidance.height, 0);
+
+  // Directly above the station at car height 13m on walk mode: wrong floor -> arrived is false
+  const wrongHeightWalk = nav.getWaypoint(
+    { theta: market.theta, y: market.y, height: TRAM_HEIGHT, traversalMode: "walk" },
+    {},
+  );
+  assert.equal(wrongHeightWalk.arrived, false);
+  assert.equal(wrongHeightWalk.finalDistance, TRAM_HEIGHT);
+
+  // Ground arrival at the station pad
+  const atMarketPad = nav.getWaypoint(
+    { theta: market.theta, y: market.y, height: 0, traversalMode: "walk" },
+    {},
+  );
+  assert.equal(atMarketPad.arrived, true);
+  assert.equal(atMarketPad.distance, 0);
+
+  // From elevated Skywalk (9m) / Service (-8m) / Skyroom (42m), selecting a tram stop exits that level first
+  assert.equal(
+    nav.getWaypoint(
+      { theta: SKYWALK_LIFT.theta, y: SKYWALK_LIFT.y, height: SKYWALK_HEIGHT, traversalMode: "walk" },
+      {},
+    ).guidance.y,
+    SKYWALK_LIFT.y,
+  );
+  assert.equal(
+    nav.getWaypoint(
+      { theta: SERVICE_ACCESS.theta, y: SERVICE_ACCESS.y, height: SERVICE_FLOOR, traversalMode: "walk" },
+      {},
+    ).guidance.height,
+    SERVICE_FLOOR,
+  );
+
+  // 2. While riding the tram, guidance chooses closest appropriate disembark car-stop at height 13m
+  const reusableOut = {};
+  nav.select({ kind: "destination", id: "greenway-glasshouse" });
+  const ridingToGlasshouse = nav.getWaypoint(
+    { theta: TRAM_THETA, y: gateway.y, height: TRAM_HEIGHT, traversalMode: "tram" },
+    {},
+    reusableOut,
+  );
+  const targetRef = ridingToGlasshouse.target;
+  const guidanceRef = ridingToGlasshouse.guidance;
+  assert.equal(ridingToGlasshouse.arrived, false);
+  assert.equal(ridingToGlasshouse.guidance.theta, TRAM_THETA);
+  assert.equal(ridingToGlasshouse.guidance.y, glasshouseStop.y);
+  assert.equal(ridingToGlasshouse.guidance.height, TRAM_HEIGHT);
+  assert.equal(ridingToGlasshouse.guidance.name, `Disembark at ${glasshouseStop.name}`);
+  assert.equal(ridingToGlasshouse.guidance.kind, "tram");
+  assert.equal(ridingToGlasshouse.target.height, 0);
+
+  // Docked in the car at Glasshouse 01 stop: still NOT arrived until disembarked to ground
+  const dockedAtGlasshouse = nav.getWaypoint(
+    { theta: TRAM_THETA, y: glasshouseStop.y, height: TRAM_HEIGHT, traversalMode: "tram" },
+    {},
+    reusableOut,
+  );
+  assert.equal(dockedAtGlasshouse.target, targetRef);
+  assert.equal(dockedAtGlasshouse.guidance, guidanceRef);
+  assert.equal(dockedAtGlasshouse.arrived, false);
+  assert.equal(dockedAtGlasshouse.distance, 0);
+  assert.ok(dockedAtGlasshouse.finalDistance > 13);
+
+  // Disembarked to ground pad -> final leg guides to ground Glasshouse 01 doorway
+  const disembarkedAtPad = nav.getWaypoint(
+    { theta: glasshouseStop.theta, y: glasshouseStop.y, height: 0, traversalMode: "walk" },
+    {},
+    reusableOut,
+  );
+  assert.equal(disembarkedAtPad.arrived, false);
+  assert.equal(disembarkedAtPad.guidance.height, 0);
+  assert.equal(disembarkedAtPad.guidance.theta, DISTRICT_STOPS[1].theta);
+  assert.equal(disembarkedAtPad.guidance.y, DISTRICT_STOPS[1].y);
+
+  // Final destination arrival at ground Glasshouse 01
+  const arrivedGlasshouse = nav.getWaypoint(
+    { theta: DISTRICT_STOPS[1].theta, y: DISTRICT_STOPS[1].y, height: 0, traversalMode: "walk" },
+    {},
+    reusableOut,
+  );
+  assert.equal(arrivedGlasshouse.arrived, true);
+
+
+  // Market square (y=-450) is 16m from Glasshouse stop (-434) vs 20m from Market stop (-470),
+  // yet must guide to canonical associated Market Square station via landmarkIds.
+  nav.select({ kind: "destination", id: "greenway-market" });
+  const ridingToMarket = nav.getWaypoint(
+    { theta: TRAM_THETA, y: gateway.y, height: TRAM_HEIGHT, traversalMode: "tram" },
+    {},
+  );
+  assert.equal(ridingToMarket.guidance.y, market.y);
+  assert.equal(ridingToMarket.guidance.height, TRAM_HEIGHT);
+  assert.equal(ridingToMarket.guidance.name, `Disembark at ${market.name}`);
+
+  nav.select({ kind: "destination", id: "civic-lobby" });
+  const ridingToLobby = nav.getWaypoint(
+    { theta: TRAM_THETA, y: 0, height: TRAM_HEIGHT, traversalMode: "tram" },
+    {},
+  );
+  assert.equal(ridingToLobby.guidance.y, towerStop.y);
+  assert.equal(ridingToLobby.guidance.name, `Disembark at ${towerStop.name}`);
+  // 3. Selecting a tram station itself while riding still guides to 13m car-stop and does not arrive until on ground
+  nav.select({ kind: "destination", id: plazaStop.id });
+  const ridingToPlazaStop = nav.getWaypoint(
+    { theta: TRAM_THETA, y: plazaStop.y, height: TRAM_HEIGHT, traversalMode: "tram" },
+    {},
+  );
+  assert.equal(ridingToPlazaStop.arrived, false);
+  assert.equal(ridingToPlazaStop.guidance.theta, TRAM_THETA);
+  assert.equal(ridingToPlazaStop.guidance.y, plazaStop.y);
+  assert.equal(ridingToPlazaStop.guidance.height, TRAM_HEIGHT);
+  assert.equal(ridingToPlazaStop.guidance.name, `Disembark at ${plazaStop.name}`);
+
+  const onPlazaGroundPad = nav.getWaypoint(
+    { theta: plazaStop.theta, y: plazaStop.y, height: 0, traversalMode: "walk" },
+    {},
+  );
+  assert.equal(onPlazaGroundPad.arrived, true);
+
+  // 4. Cross-floor targets while riding disembark at nearest appropriate surface stop first
+  nav.select({ kind: "destination", id: "skyroom" });
+  const ridingToSkyroom = nav.getWaypoint(
+    { theta: TRAM_THETA, y: 0, height: TRAM_HEIGHT, traversalMode: "tram" },
+    {},
+  );
+  assert.equal(ridingToSkyroom.arrived, false);
+  assert.equal(ridingToSkyroom.guidance.y, towerStop.y);
+  assert.equal(ridingToSkyroom.guidance.height, TRAM_HEIGHT);
+  assert.equal(ridingToSkyroom.guidance.name, `Disembark at ${towerStop.name}`);
+
+  nav.select({ kind: "destination", id: "meridian-water-plant" });
+  const ridingToService = nav.getWaypoint(
+    { theta: TRAM_THETA, y: 0, height: TRAM_HEIGHT, traversalMode: "tram" },
+    {},
+  );
+  assert.equal(ridingToService.guidance.y, plazaStop.y);
+  assert.equal(ridingToService.guidance.height, TRAM_HEIGHT);
+  assert.equal(ridingToService.guidance.name, `Disembark at ${plazaStop.name}`);
+
+  nav.select({ kind: "destination", id: "sunline-module-02" });
+  const ridingToAxial = nav.getWaypoint(
+    { theta: TRAM_THETA, y: 0, height: TRAM_HEIGHT, traversalMode: "tram" },
+    {},
+  );
+  assert.equal(ridingToAxial.guidance.y, gateway.y);
+  assert.equal(ridingToAxial.guidance.height, TRAM_HEIGHT);
+  assert.equal(ridingToAxial.guidance.name, `Disembark at ${gateway.name}`);
+
+  // 5. Delivery job target while riding disembarks at nearest appropriate stop, then finishes on ground
+  nav.select({ kind: "job", id: "delivery" });
+  const pickupViews = {
+    delivery: {
+      title: "Neighborhood delivery",
+      phase: "available",
+      target: {
+        s: DELIVERY_STATIONS.pickup.s,
+        y: DELIVERY_STATIONS.pickup.y,
+        height: 0,
+      },
+    },
+  };
+  const ridingToPickup = nav.getWaypoint(
+    { theta: TRAM_THETA, y: 0, height: TRAM_HEIGHT, traversalMode: "tram" },
+    pickupViews,
+  );
+  assert.equal(ridingToPickup.arrived, false);
+  assert.equal(ridingToPickup.guidance.y, market.y);
+  assert.equal(ridingToPickup.guidance.height, TRAM_HEIGHT);
+  assert.equal(ridingToPickup.guidance.name, `Disembark at ${market.name}`);
+  // Non-ground job targets resolve ground access leg first (not raw final-target Y)
+  nav.select({ kind: "job", id: "maintenance" });
+  const skywalkJobViews = {
+    maintenance: {
+      title: "Civic maintenance",
+      phase: "assigned",
+      target: {
+        theta: SKYWALK_LIFT.theta,
+        y: 440,
+        height: SKYWALK_HEIGHT,
+      },
+    },
+  };
+  const ridingToSkywalkJob = nav.getWaypoint(
+    { theta: TRAM_THETA, y: 0, height: TRAM_HEIGHT, traversalMode: "tram" },
+    skywalkJobViews,
+  );
+  assert.equal(ridingToSkywalkJob.guidance.y, towerStop.y);
+  assert.equal(ridingToSkywalkJob.guidance.height, TRAM_HEIGHT);
+  assert.equal(ridingToSkywalkJob.guidance.name, `Disembark at ${towerStop.name}`);
+
+  // Service-level job near tower Y still resolves via SERVICE_ACCESS (y=425) -> Meridian Plaza stop
+  nav.select({ kind: "job", id: "sunline" });
+  const serviceLevelJobViews = {
+    sunline: {
+      title: "Service override",
+      phase: "available",
+      target: {
+        theta: SERVICE_ACCESS.theta,
+        y: towerStop.y,
+        height: SERVICE_FLOOR,
+      },
+    },
+  };
+  const ridingToServiceJob = nav.getWaypoint(
+    { theta: TRAM_THETA, y: 0, height: TRAM_HEIGHT, traversalMode: "tram" },
+    serviceLevelJobViews,
+  );
+  assert.equal(ridingToServiceJob.guidance.y, plazaStop.y);
+  assert.equal(ridingToServiceJob.guidance.height, TRAM_HEIGHT);
+  assert.equal(ridingToServiceJob.guidance.name, `Disembark at ${plazaStop.name}`);
 });

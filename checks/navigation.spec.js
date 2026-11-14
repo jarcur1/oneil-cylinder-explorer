@@ -466,6 +466,7 @@ test("three layer filters, known locations, lift/trolley links, job targets, and
 
       const expectedSurfaceVerticals = NAV_CONNECTIONS.filter(
         (c) =>
+          c.type === "lift" &&
           getNavigationLayer(c.from.height) === "surface" &&
           getNavigationLayer(c.to.height) === "surface",
       );
@@ -1315,6 +1316,14 @@ test("keyboard list selection and viewport resize preserve focus on active map l
         document.activeElement?.getAttribute("data-destination-id"),
       ),
     ).toBe("greenway-glasshouse");
+
+    // Long station lists must not scroll the atlas out of the desktop view.
+    await page.setViewportSize({ width: 1100, height: 720 });
+    await page.locator('button[data-destination-id="tram-tower"]').click();
+    await expect(page.locator(".habitat-map-svg")).toBeInViewport({ ratio: 0.95 });
+    await expect(
+      page.locator('button[data-destination-id="tram-tower"]'),
+    ).toBeFocused();
 
     expect(errors).toEqual([]);
   } finally {

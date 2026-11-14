@@ -24,10 +24,12 @@
       import {
         RADIUS,
         LENGTH,
+        EYE_HEIGHT,
         SPAWN,
         VIEW_DISTANCE,
         GREENWAY_PLACEMENT,
         MERIDIAN_PLACEMENT,
+        gravityAtHeight,
       } from "../src/habitat.js";
       import { surfacePos, surfaceUp } from "../src/surface.js";
       import { wrappedDeltaTheta } from "../src/cylinder-math.js";
@@ -60,7 +62,27 @@
         SUNLINE_TRACK_MIN_Y,
         SUNLINE_TRACK_MAX_Y,
       } from "../src/sunline-layout.js";
-
+      import {
+        TRAM_THETA,
+        TRAM_HEIGHT,
+        TRAM_SPEED,
+        TRAM_END_DWELL,
+        TRAM_DWELL,
+        TRAM_BOARD_WINDOW,
+        TRAM_STOPS,
+        TRAM_TRACK_MIN_Y,
+        TRAM_TRACK_MAX_Y,
+        TRAM_GANTRY_YS,
+        TRAM_CAR_WIDTH,
+        TRAM_CAR_LENGTH,
+        TRAM_CAR_HEIGHT,
+        TRAM_GANTRY_ARC,
+        TRAM_GANTRY_COLUMN_SIZE,
+        TRAM_PLATFORM_ARC,
+        TRAM_PLATFORM_WIDTH,
+        TRAM_PLATFORM_LENGTH,
+        TRAM_PLATFORM_BASE,
+      } from "../src/tram-layout.js";
       const renderer = new THREE.WebGLRenderer({ antialias: true });
       renderer.setPixelRatio(1);
       renderer.setSize(window.innerWidth || 800, window.innerHeight || 600);
@@ -99,10 +121,13 @@
       let elapsed = 0;
 
       function step(dt = 1 / 60, { updateWorld = true, render = false } = {}) {
+        if (updateWorld) {
+          elapsed += dt;
+          world.tram.update(dt);
+        }
         player.update(dt);
         player.getState(state);
         if (updateWorld) {
-          elapsed += dt;
           world.update(dt, elapsed, state);
         }
         camera.layers.set(state.height < -1 ? 1 : 0);
@@ -426,6 +451,537 @@
         };
       }
 
+      const _tramPose = {};
+      const _tramState = {};
+
+      function inspectTram() {
+        scene.updateMatrixWorld(true);
+        const root = scene.getObjectByName("civilian_tram");
+        const carriage = scene.getObjectByName("civilian_tram_carriage");
+        const pose = world.tram.getPose(_tramPose);
+        const tramState = world.tram.getState(_tramState);
+        const expectedFoot = surfacePos(pose.theta, pose.y, pose.height);
+        const expectedEye = surfacePos(
+          pose.theta,
+          pose.y,
+          pose.height + EYE_HEIGHT,
+        );
+
+        let carriageVisible = false;
+        let carriageWorldPos = null;
+        let carriageBox = null;
+        let carriageMeshCount = 0;
+        let carriageAtmosphereDynamic = false;
+        let footAgreementDist = null;
+
+        if (carriage) {
+          const wp = new THREE.Vector3();
+          carriage.getWorldPosition(wp);
+          carriageWorldPos = { x: wp.x, y: wp.y, z: wp.z };
+          footAgreementDist = wp.distanceTo(expectedFoot);
+          carriageVisible = Boolean(carriage.visible);
+
+          const box = new THREE.Box3().setFromObject(carriage);
+          const size = new THREE.Vector3();
+          box.getSize(size);
+          carriageBox = {
+            min: { x: box.min.x, y: box.min.y, z: box.min.z },
+            max: { x: box.max.x, y: box.max.y, z: box.max.z },
+            size: { x: size.x, y: size.y, z: size.z },
+          };
+
+          carriage.traverse((obj) => {
+            if (obj.userData?.atmosphereDynamic === true) {
+              carriageAtmosphereDynamic = true;
+            }
+            if (obj.isMesh) {
+              carriageMeshCount++;
+            }
+          });
+        }
+
+        const instancedMeshes = [];
+        if (root) {
+          root.traverse((obj) => {
+            if (!obj.isInstancedMesh) return;
+            const bb = obj.boundingBox;
+            const bs = obj.boundingSphere;
+            const worldBox = bb ? bb.clone().applyMatrix4(obj.matrixWorld) : null;
+            const positions = obj.geometry.getAttribute("position");
+            let boundsEscape = null;
+            let sphereEscape = null;
+            let testedVertexCount = 0;
+            if (bb && bs && positions && obj.count > 0) {
+              const instanceMatrix = new THREE.Matrix4();
+              const point = new THREE.Vector3();
+              boundsEscape = 0;
+              sphereEscape = 0;
+              for (let i = 0; i < obj.count; i++) {
+                obj.getMatrixAt(i, instanceMatrix);
+                for (let j = 0; j < positions.count; j++) {
+                  point.fromBufferAttribute(positions, j).applyMatrix4(instanceMatrix);
+                  boundsEscape = Math.max(
+                    boundsEscape,
+                    bb.min.x - point.x, point.x - bb.max.x,
+                    bb.min.y - point.y, point.y - bb.max.y,
+                    bb.min.z - point.z, point.z - bb.max.z,
+                  );
+                  sphereEscape = Math.max(
+                    sphereEscape,
+                    point.distanceTo(bs.center) - bs.radius,
+                  );
+                  testedVertexCount++;
+                }
+              }
+            }
+            instancedMeshes.push({
+              name: obj.name || null,
+              count: obj.count,
+              hasBoundingBox: Boolean(bb && !bb.isEmpty()),
+              hasBoundingSphere: Boolean(
+                bs && Number.isFinite(bs.radius) && bs.radius > 0,
+              ),
+              minY: worldBox ? worldBox.min.y : null,
+              maxY: worldBox ? worldBox.max.y : null,
+              sphereRadius: bs ? bs.radius : null,
+              boundsEscape,
+              sphereEscape,
+              testedVertexCount,
+            });
+          });
+        }
+
+        return {
+          rootFound: Boolean(root),
+          rootVisible: root ? Boolean(root.visible) : false,
+          carriageFound: Boolean(carriage),
+          carriageVisible,
+          carriageAtmosphereDynamic,
+          carriageMeshCount,
+          carriageWorldPos,
+          carriageBox,
+          expectedFootWorldPos: {
+            x: expectedFoot.x,
+            y: expectedFoot.y,
+            z: expectedFoot.z,
+          },
+          expectedEyeWorldPos: {
+            x: expectedEye.x,
+            y: expectedEye.y,
+            z: expectedEye.z,
+          },
+          cameraWorldPos: {
+            x: camera.position.x,
+            y: camera.position.y,
+            z: camera.position.z,
+          },
+          cameraEyeDist: camera.position.distanceTo(expectedEye),
+          pose: { ...pose },
+          state: { ...tramState },
+          footAgreementDist,
+          instancedMeshes,
+        };
+      }
+
+      function forEachWorldMeshBox(root, { skipNames = [] } = {}, visitor) {
+        if (!root) return;
+        const box = new THREE.Box3();
+        const size = new THREE.Vector3();
+        const instMat = new THREE.Matrix4();
+        const worldMat = new THREE.Matrix4();
+
+        function visitNode(obj) {
+          if (!obj.visible) return;
+          if (skipNames.includes(obj.name)) return;
+          if (obj.isMesh) {
+            if (!obj.geometry.boundingBox) {
+              obj.geometry.computeBoundingBox();
+            }
+            if (obj.isInstancedMesh) {
+              for (let i = 0; i < obj.count; i++) {
+                obj.getMatrixAt(i, instMat);
+                worldMat.multiplyMatrices(obj.matrixWorld, instMat);
+                box.copy(obj.geometry.boundingBox).applyMatrix4(worldMat);
+                box.getSize(size);
+                if (size.x > 400 || size.z > 400) continue;
+                visitor(box, obj, i);
+              }
+            } else {
+              box.copy(obj.geometry.boundingBox).applyMatrix4(obj.matrixWorld);
+              box.getSize(size);
+              if (size.x <= 400 && size.z <= 400) {
+                visitor(box, obj, -1);
+              }
+            }
+          }
+          for (const child of obj.children) {
+            visitNode(child);
+          }
+        }
+        visitNode(root);
+      }
+
+      function inspectTramClearance() {
+        scene.updateMatrixWorld(true);
+        const tramRoot = scene.getObjectByName("civilian_tram");
+        const greenwayRoot = scene.getObjectByName("greenway_district");
+
+        const serializeBox = (b) => ({
+          min: { x: b.min.x, y: b.min.y, z: b.min.z },
+          max: { x: b.max.x, y: b.max.y, z: b.max.z },
+        });
+
+        // 1. Car swept corridor clearance
+        const carCorridorBox = new THREE.Box3(
+          new THREE.Vector3(
+            -TRAM_CAR_WIDTH / 2 + 0.02,
+            TRAM_TRACK_MIN_Y + 0.02,
+            -(RADIUS - TRAM_HEIGHT) + 0.02,
+          ),
+          new THREE.Vector3(
+            TRAM_CAR_WIDTH / 2 - 0.02,
+            TRAM_TRACK_MAX_Y - 0.02,
+            -(RADIUS - (TRAM_HEIGHT + TRAM_CAR_HEIGHT)) - 0.02,
+          ),
+        );
+        const carCorridorObstacleHits = [];
+        for (const obs of world.obstacles) {
+          if (obs.depth === LENGTH && obs.width > RADIUS * 4) continue;
+          const obsS = wrappedDeltaTheta(obs.theta, TRAM_THETA) * RADIUS;
+          const obsBase = obs.base ?? 0;
+          const obsTop = obsBase + obs.height;
+          if (
+            Math.abs(obsS) < obs.width / 2 + TRAM_CAR_WIDTH / 2 - 0.02 &&
+            obs.y + obs.depth / 2 > TRAM_TRACK_MIN_Y + 0.02 &&
+            obs.y - obs.depth / 2 < TRAM_TRACK_MAX_Y - 0.02 &&
+            obsBase < TRAM_HEIGHT + TRAM_CAR_HEIGHT - 0.02 &&
+            obsTop > TRAM_HEIGHT + 0.02
+          ) {
+            carCorridorObstacleHits.push({
+              s: obsS,
+              y: obs.y,
+              base: obsBase,
+              height: obs.height,
+              width: obs.width,
+              depth: obs.depth,
+            });
+          }
+        }
+
+        const nonTramMeshHits = [];
+        forEachWorldMeshBox(
+          scene,
+          { skipNames: ["civilian_tram"] },
+          (box, obj, instanceIndex) => {
+            if (carCorridorBox.intersectsBox(box)) {
+              nonTramMeshHits.push({
+                name: obj.name || null,
+                instanceIndex,
+                box: serializeBox(box),
+              });
+            }
+          },
+        );
+
+        const tramStaticCorridorHits = [];
+        forEachWorldMeshBox(
+          tramRoot,
+          { skipNames: ["civilian_tram_carriage"] },
+          (box, obj, instanceIndex) => {
+            if (carCorridorBox.intersectsBox(box)) {
+              tramStaticCorridorHits.push({
+                name: obj.name || null,
+                instanceIndex,
+                box: serializeBox(box),
+              });
+            }
+          },
+        );
+
+        let skywalkSouthEdgeY = null;
+        const guidewayHalfArc = TRAM_GANTRY_ARC + TRAM_GANTRY_COLUMN_SIZE / 2;
+        for (const obs of world.obstacles) {
+          const obsS = wrappedDeltaTheta(obs.theta, 0) * RADIUS;
+          const obsBase = obs.base ?? 0;
+          if (
+            Math.abs(obsBase - 8.65) < 0.5 &&
+            obsS + obs.width / 2 >= -guidewayHalfArc &&
+            obsS - obs.width / 2 <= guidewayHalfArc &&
+            obs.y > 500
+          ) {
+            const edge = obs.y - obs.depth / 2;
+            if (skywalkSouthEdgeY === null || edge < skywalkSouthEdgeY) {
+              skywalkSouthEdgeY = edge;
+            }
+          }
+        }
+        const skywalkClearanceY =
+          skywalkSouthEdgeY === null ? null : skywalkSouthEdgeY - TRAM_TRACK_MAX_Y;
+
+        // 2. Bakery awning vs second west gantry column clearance
+        const expectedAwningCenter = surfacePos(
+          -6.3 / RADIUS,
+          GREENWAY_PLACEMENT.toWorldY(-272),
+          2.95,
+        );
+        const tmpCenter = new THREE.Vector3();
+        let awningBox = null;
+        let bestAwningDist = Infinity;
+        forEachWorldMeshBox(greenwayRoot, {}, (box) => {
+          box.getCenter(tmpCenter);
+          const d = tmpCenter.distanceTo(expectedAwningCenter);
+          if (d < bestAwningDist) {
+            bestAwningDist = d;
+            awningBox = box.clone();
+          }
+        });
+        const awningFound = Boolean(awningBox && bestAwningDist < 0.5);
+        const bakeryMeshIntersections = [];
+        const bakeryObstacleIntersections = [];
+        let nearestSouthColumnGapY = null;
+        let secondWestColumnBox = null;
+
+        if (awningFound) {
+          forEachWorldMeshBox(
+            tramRoot,
+            { skipNames: ["civilian_tram_carriage"] },
+            (box, obj, instanceIndex) => {
+              if (box.intersectsBox(awningBox)) {
+                bakeryMeshIntersections.push({
+                  name: obj.name || null,
+                  instanceIndex,
+                  box: serializeBox(box),
+                });
+              }
+              if (
+                box.min.x < 0 &&
+                box.max.y <= awningBox.min.y + 0.5 &&
+                box.min.y > -520 &&
+                box.min.z < -350
+              ) {
+                const gapY = awningBox.min.y - box.max.y;
+                if (
+                  nearestSouthColumnGapY === null ||
+                  gapY < nearestSouthColumnGapY
+                ) {
+                  nearestSouthColumnGapY = gapY;
+                  secondWestColumnBox = serializeBox(box);
+                }
+              }
+            },
+          );
+          for (const obs of world.obstacles) {
+            if (obs.depth === LENGTH && obs.width > RADIUS * 4) continue;
+            const obsS = wrappedDeltaTheta(obs.theta, 0) * RADIUS;
+            const obsBase = obs.base ?? 0;
+            const obsTop = obsBase + obs.height;
+            if (
+              obsS + obs.width / 2 > -7.0 &&
+              obsS - obs.width / 2 < -5.6 &&
+              obs.y + obs.depth / 2 > -495.0 &&
+              obs.y - obs.depth / 2 < -489.0 &&
+              obsTop > 2.85 &&
+              obsBase < 3.05
+            ) {
+              bakeryObstacleIntersections.push({
+                s: obsS,
+                y: obs.y,
+                base: obsBase,
+                height: obs.height,
+                width: obs.width,
+                depth: obs.depth,
+              });
+            }
+          }
+        }
+
+        // 3. Raised underside verification (rail + elevated decks)
+        let raisedObstacleCount = 0;
+        const railGroundBlockers = [];
+        const platformGroundBlockers = [];
+        for (const obs of world.obstacles) {
+          if (obs.depth === LENGTH && obs.width > RADIUS * 4) continue;
+          const obsS = wrappedDeltaTheta(obs.theta, 0) * RADIUS;
+          const obsBase = obs.base ?? 0;
+          const obsTop = obsBase + obs.height;
+          if (
+            obsBase >= 11.5 &&
+            obsBase <= 13.5 &&
+            Math.abs(obsS) <= 6 &&
+            obs.y + obs.depth / 2 >= TRAM_TRACK_MIN_Y &&
+            obs.y - obs.depth / 2 <= TRAM_TRACK_MAX_Y
+          ) {
+            raisedObstacleCount++;
+          }
+          if (
+            Math.abs(obsS) < obs.width / 2 + 2.4 &&
+            obs.y + obs.depth / 2 > TRAM_TRACK_MIN_Y &&
+            obs.y - obs.depth / 2 < TRAM_TRACK_MAX_Y &&
+            obsBase < 10.0 &&
+            obsTop > 0.05
+          ) {
+            railGroundBlockers.push({
+              s: obsS,
+              y: obs.y,
+              base: obsBase,
+              height: obs.height,
+            });
+          }
+          for (const stop of TRAM_STOPS) {
+            const pMinS = 1.7;
+            const pMaxS = Math.min(3.7, TRAM_PLATFORM_ARC + TRAM_PLATFORM_WIDTH / 2 - 0.1);
+            if (
+              obsS + obs.width / 2 > pMinS &&
+              obsS - obs.width / 2 < pMaxS &&
+              obs.y + obs.depth / 2 > stop.y - TRAM_PLATFORM_LENGTH / 2 + 0.1 &&
+              obs.y - obs.depth / 2 < stop.y + TRAM_PLATFORM_LENGTH / 2 - 0.1 &&
+              obsBase < 10.0 &&
+              obsTop > 0.05
+            ) {
+              platformGroundBlockers.push({
+                stopId: stop.id,
+                s: obsS,
+                y: obs.y,
+                base: obsBase,
+                height: obs.height,
+              });
+            }
+          }
+        }
+
+        // 4. Station 1m ground clear zones & existing prop clearance
+        const stationClearZones = TRAM_STOPS.map((stop) => {
+          const stopS = wrappedDeltaTheta(stop.theta, 0) * RADIUS;
+          const obstacleBlockers = [];
+          for (const obs of world.obstacles) {
+            if (obs.depth === LENGTH && obs.width > RADIUS * 4) continue;
+            const obsS = wrappedDeltaTheta(obs.theta, 0) * RADIUS;
+            const obsBase = obs.base ?? 0;
+            const obsTop = obsBase + obs.height;
+            if (obsBase >= 2.2 || obsTop <= 0.05) continue;
+            const ds =
+              stopS -
+              Math.max(obsS - obs.width / 2, Math.min(obsS + obs.width / 2, stopS));
+            const dy =
+              stop.y -
+              Math.max(obs.y - obs.depth / 2, Math.min(obs.y + obs.depth / 2, stop.y));
+            if (Math.hypot(ds, dy) < 1.0) {
+              obstacleBlockers.push({
+                s: obsS,
+                y: obs.y,
+                base: obsBase,
+                height: obs.height,
+                dist: Math.hypot(ds, dy),
+              });
+            }
+          }
+
+          const stopFoot = surfacePos(stop.theta, stop.y, 0);
+          const clearZoneBox = new THREE.Box3(
+            new THREE.Vector3(
+              stopFoot.x - 1.0,
+              stopFoot.y - 1.0,
+              -(RADIUS - 0.12),
+            ),
+            new THREE.Vector3(
+              stopFoot.x + 1.0,
+              stopFoot.y + 1.0,
+              -(RADIUS - 2.2),
+            ),
+          );
+          const meshBlockers = [];
+          forEachWorldMeshBox(
+            scene,
+            { skipNames: ["civilian_tram_carriage"] },
+            (box, obj, instanceIndex) => {
+              if (box.max.x - box.min.x > 8 && box.max.z < -359.0) return;
+              if (clearZoneBox.intersectsBox(box)) {
+                meshBlockers.push({
+                  name: obj.name || null,
+                  instanceIndex,
+                  box: serializeBox(box),
+                });
+              }
+            },
+          );
+
+          return {
+            id: stop.id,
+            stopS,
+            stopY: stop.y,
+            obstacleBlockers,
+            meshBlockers,
+          };
+        });
+
+        // Existing Market sign (s=4.2, worldY=-466.5) & Civic lamps (s=6.8, worldY=435, 495)
+        const existingProps = [
+          {
+            name: "market-direction-sign",
+            box: new THREE.Box3(
+              new THREE.Vector3(3.9, -466.8, -(RADIUS - 0.2)),
+              new THREE.Vector3(4.5, -466.2, -(RADIUS - 2.6)),
+            ),
+          },
+          {
+            name: "civic-lamp-plaza",
+            box: new THREE.Box3(
+              new THREE.Vector3(6.55, 434.75, -(RADIUS - 0.2)),
+              new THREE.Vector3(7.05, 435.25, -(RADIUS - 4.5)),
+            ),
+          },
+          {
+            name: "civic-lamp-tower",
+            box: new THREE.Box3(
+              new THREE.Vector3(6.55, 494.75, -(RADIUS - 0.2)),
+              new THREE.Vector3(7.05, 495.25, -(RADIUS - 4.5)),
+            ),
+          },
+        ];
+        const propTramCollisions = [];
+        forEachWorldMeshBox(
+          tramRoot,
+          { skipNames: ["civilian_tram_carriage"] },
+          (box, obj, instanceIndex) => {
+            for (const prop of existingProps) {
+              if (prop.box.intersectsBox(box)) {
+                propTramCollisions.push({
+                  prop: prop.name,
+                  name: obj.name || null,
+                  instanceIndex,
+                  box: serializeBox(box),
+                });
+              }
+            }
+          },
+        );
+
+        return {
+          carCorridor: {
+            obstacleHits: carCorridorObstacleHits,
+            nonTramMeshHits,
+            tramStaticCorridorHits,
+            skywalkSouthEdgeY,
+            skywalkClearanceY,
+          },
+          bakeryGantryClearance: {
+            awningFound,
+            awningBox: awningBox ? serializeBox(awningBox) : null,
+            meshIntersections: bakeryMeshIntersections,
+            obstacleIntersections: bakeryObstacleIntersections,
+            nearestSouthColumnGapY,
+            secondWestColumnBox,
+          },
+          raisedUnderside: {
+            raisedObstacleCount,
+            railGroundBlockers,
+            platformGroundBlockers,
+          },
+          stationClearZones,
+          propTramCollisions,
+        };
+      }
+
       const _camDir = new THREE.Vector3();
       const wrapAngleDiff = (a, b) =>
         Math.atan2(Math.sin(a - b), Math.cos(a - b));
@@ -498,6 +1054,7 @@
         return { ...state, elapsed };
       }
 
+      world.tram.update(0);
       player.update(0);
       world.update(0, 0, player.getState(state));
       renderer.render(scene, camera);
@@ -510,6 +1067,7 @@
         player,
         getCityLift,
         getSunlineTransfer,
+        gravityAtHeight,
         step,
         render,
         sampleLuminanceAt,
@@ -521,10 +1079,13 @@
         inspectSunlineTrolley,
         inspectSunlineCorridorInstances,
         inspectCarriedCargo,
+        inspectTram,
+        inspectTramClearance,
         walkSecuredTo,
         layouts: {
           RADIUS,
           LENGTH,
+          EYE_HEIGHT,
           VIEW_DISTANCE,
           SPAWN,
           GREENWAY_PLACEMENT,
@@ -550,6 +1111,25 @@
           AXIAL_HEIGHT,
           SUNLINE_TRACK_MIN_Y,
           SUNLINE_TRACK_MAX_Y,
+          TRAM_THETA,
+          TRAM_HEIGHT,
+          TRAM_SPEED,
+          TRAM_END_DWELL,
+          TRAM_DWELL,
+          TRAM_BOARD_WINDOW,
+          TRAM_STOPS,
+          TRAM_TRACK_MIN_Y,
+          TRAM_TRACK_MAX_Y,
+          TRAM_GANTRY_YS,
+          TRAM_CAR_WIDTH,
+          TRAM_CAR_LENGTH,
+          TRAM_CAR_HEIGHT,
+          TRAM_GANTRY_ARC,
+          TRAM_GANTRY_COLUMN_SIZE,
+          TRAM_PLATFORM_ARC,
+          TRAM_PLATFORM_WIDTH,
+          TRAM_PLATFORM_LENGTH,
+          TRAM_PLATFORM_BASE,
         },
         dispose() {
           player.dispose();

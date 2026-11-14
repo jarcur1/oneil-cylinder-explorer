@@ -21,6 +21,7 @@ import { createMaintenance } from "./maintenance.js";
 import { createServiceLevel } from "./service-level.js";
 import { SERVICE_FLOOR } from "./service-layout.js";
 import { createSunline } from "./sunline.js";
+import { createTram } from "./tram.js";
 import { LANDMARKS } from "./landmarks.js";
 import { wrappedDeltaTheta } from "./cylinder-math.js";
 
@@ -848,6 +849,7 @@ export function createWorld(scene, camera, saved = {}) {
   const cityTower = createCityTower(meridianGroup);
   const maintenance = createMaintenance(districtGroup, saved.maintenancePhase);
   const service = createServiceLevel(meridianGroup);
+  const tram = createTram(districtGroup);
   obstacles.push(
     ...copyTranslatedObstacles(village.obstacles, GREENWAY_PLACEMENT),
     ...copyTranslatedObstacles(farm.obstacles, GREENWAY_PLACEMENT),
@@ -857,6 +859,7 @@ export function createWorld(scene, camera, saved = {}) {
     ...maintenance.obstacles,
     ...copyTranslatedObstacles(service.obstacles, MERIDIAN_PLACEMENT),
     ...sunline.obstacles,
+    ...tram.obstacles,
     // The living surface is a deck, not the outermost pressure-hull floor.
     // Its underside stays solid above the enclosed service spaces.
     {
@@ -914,6 +917,7 @@ export function createWorld(scene, camera, saved = {}) {
     maintenance,
     sunline,
     residents,
+    tram,
     update,
   };
 }

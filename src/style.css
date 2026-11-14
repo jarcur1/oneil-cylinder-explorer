@@ -1059,6 +1059,31 @@ dialog.habitat-map::backdrop {
   color: #d5f58e;
   font-weight: 600;
 }
+.habitat-map-tram-status {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: 6px 12px;
+  font-size: 10px;
+  letter-spacing: 0.05em;
+  color: #dce8e0;
+  background: #0c1d24;
+  border: 1px solid #f3d39045;
+  padding: 7px 10px;
+}
+.habitat-map-tram-head {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  color: #f3d390;
+  flex-shrink: 0;
+}
+.habitat-map-tram-text {
+  color: #cfe0d8;
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
 .habitat-map-svg-wrap {
   border: 1px solid #ffffff1c;
   background: #09161b;
@@ -1146,6 +1171,11 @@ dialog.habitat-map::backdrop {
   stroke-width: 2;
   stroke-dasharray: 5 3;
 }
+.map-link-tram {
+  stroke: #f3d390cc;
+  stroke-width: 2.6;
+  stroke-dasharray: none;
+}
 .map-link-vertical {
   fill: none;
   stroke: #9ad8e8aa;
@@ -1193,6 +1223,9 @@ dialog.habitat-map::backdrop {
   fill: #79ddd2;
   stroke: #09161b;
   stroke-width: 1.2;
+}
+.map-glyph-tram {
+  fill: #f3d390;
 }
 .map-glyph-job {
   fill: #e6c78c;
@@ -1247,6 +1280,27 @@ dialog.habitat-map::backdrop {
 .map-player-label.is-other-layer {
   fill: #b7cac1;
 }
+.map-tram-car {
+  fill: #f3d390;
+  stroke: #09161b;
+  stroke-width: 1.5;
+}
+.map-tram-marker.is-docked .map-tram-car {
+  fill: #d5f58e;
+}
+.map-tram-headlight {
+  fill: #09161b;
+}
+.map-tram-label {
+  fill: #f3d390;
+  font-size: 9.5px;
+  font-weight: 700;
+  letter-spacing: 0.06em;
+  paint-order: stroke;
+  stroke: #09161b;
+  stroke-width: 3.2px;
+  stroke-linejoin: round;
+}
 .habitat-map-legend {
   display: flex;
   flex-wrap: wrap;
@@ -1296,6 +1350,10 @@ dialog.habitat-map::backdrop {
 .legend-link {
   height: 2px;
   background: #79ddd2;
+}
+.legend-tram {
+  height: 3px;
+  background: #f3d390;
 }
 .habitat-map-sidebar {
   display: flex;
@@ -1375,6 +1433,8 @@ dialog.habitat-map::backdrop {
 }
 .map-list-badges {
   display: inline-flex;
+  flex-wrap: wrap;
+  justify-content: flex-end;
   align-items: center;
   gap: 5px;
   flex-shrink: 0;
@@ -1401,6 +1461,18 @@ dialog.habitat-map::backdrop {
 .map-badge-access {
   color: #79ddd2;
   border-color: #79ddd270;
+}
+.map-badge-tram {
+  color: #f3d390;
+  border-color: #f3d39070;
+}
+
+@media (min-width: 821px) {
+  .habitat-map-canvas-panel {
+    position: sticky;
+    top: 0;
+    align-self: start;
+  }
 }
 
 @media (max-width: 820px) {
@@ -1460,6 +1532,10 @@ dialog.habitat-map::backdrop {
     font-size: 9px;
     padding: 7px 8px;
   }
+  .habitat-map-tram-status {
+    font-size: 9px;
+    padding: 6px 8px;
+  }
   .map-list-btn {
     padding: 9px 10px;
   }
@@ -1468,7 +1544,8 @@ dialog.habitat-map::backdrop {
     stroke-width: 3.5px;
   }
   .map-pin-label,
-  .map-player-label {
+  .map-player-label,
+  .map-tram-label {
     font-size: 11.5px;
     stroke-width: 3.8px;
   }

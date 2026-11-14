@@ -16,6 +16,7 @@ import { LANDMARKS } from "./landmarks.js";
 import { createNavigation } from "./navigation.js";
 import { createHabitatMap } from "./habitat-map.js";
 import { createWaypoint } from "./waypoint.js";
+import { TRAM_STOPS } from "./tram-layout.js";
 import {
   wrappedDeltaTheta,
   horizontalDistance,
@@ -23,6 +24,7 @@ import {
 } from "./cylinder-math.js";
 const $ = (id) => document.getElementById(id);
 const ENDCAP_AREA_Y = LENGTH / 2 - 50;
+const TRAM_STOP_BY_ID = new Map(TRAM_STOPS.map((stop) => [stop.id, stop]));
 const startButton = $("start");
 const mapButton = $("map-toggle");
 startButton.disabled = true;
@@ -38,7 +40,7 @@ function showError(error) {
   const pausePanel = $("pause-panel");
   if (pausePanel) pausePanel.hidden = true;
   $("error").hidden = false;
-  $("error-message").textContent = error.message || String(error);
+  $("error-message").textContent = error?.message || String(error);
   $("loading").textContent = "Habitat unavailable.";
   console.error(error);
 }
@@ -136,7 +138,7 @@ try {
   const saveStore = createSaveStore();
   const saved = saveStore.load(LANDMARKS.map((stop) => stop.id));
   const world = createWorld(scene, camera, saved);
-  const { delivery, maintenance, sunline, residents } = world;
+  const { delivery, maintenance, sunline, residents, tram } = world;
   // Cargo remains visible under either lighting set; other world meshes do not.
   for (const child of camera.children)
     child.traverse((node) => node.layers.enable(1));
@@ -151,7 +153,7 @@ try {
   const clock = new THREE.Clock();
   let elapsed = 0;
   let hudTime = 0;
-  let currentLift = null;
+  let pendingTransfer = null;
   let travelAt = 0;
   let travelEnd = 0;
   let travelMoved = false;
@@ -161,6 +163,8 @@ try {
   const navigation = createNavigation();
   const waypointMarker = createWaypoint(camera, ui.waypoint);
   const waypointResult = {};
+  const tramMapSnapshot = {};
+  const tramHudSnapshot = {};
   const jobViews = {
     delivery: null,
     maintenance: null,
@@ -316,6 +320,14 @@ try {
     if (status !== "blocked") saveProgress();
   }
 
+  function cancelPendingTransfer() {
+    pendingTransfer = null;
+    travelMoved = false;
+    travelAt = 0;
+    travelEnd = 0;
+    ui.viewport.classList.remove("lift-travel");
+  }
+
   function pause(options) {
     if (fatalError) {
       mapReturnMode = null;
@@ -352,6 +364,14 @@ try {
     syncAudio(() => soundscape.setActive(false));
   }
 
+  function handleFatalError(error) {
+    fatalError = true;
+    cancelPendingTransfer();
+    pause({ showPanel: false });
+    renderer.setAnimationLoop(null);
+    showError(error);
+  }
+
   player = createPlayer(camera, renderer.domElement, {
     obstacles: world.obstacles,
     groundHeight: world.groundHeight,
@@ -368,8 +388,7 @@ try {
 
   function visitEndcap() {
     if (fatalError || mapOpen || habitatMap.isOpen()) return;
-    currentLift = null;
-    ui.viewport.classList.remove("lift-travel");
+    cancelPendingTransfer();
     closeDialogue();
     player.teleport(ENDCAP_ARRIVAL);
     enter();
@@ -377,14 +396,14 @@ try {
 
   function visitCity() {
     if (fatalError || mapOpen || habitatMap.isOpen()) return;
-    currentLift = null;
-    ui.viewport.classList.remove("lift-travel");
+    cancelPendingTransfer();
     closeDialogue();
     player.teleport(CITY_ARRIVAL);
     enter();
   }
 
   function renderScene() {
+    if (fatalError) return;
     player.getState(playerState);
     camera.layers.set(playerState.height < -1 ? 1 : 0);
     renderer.render(scene, camera);
@@ -392,45 +411,51 @@ try {
 
   function updateFooter(state, locked = state.locked) {
     const footerText =
-      state.traversalMode === "trolley"
-        ? "W/S · DRIVE / REVERSE · LOOK FREELY · E · DOCK / SERVICE"
-        : state.traversalMode === "secured"
-          ? "MAG BOOTS · WASD · E · CONTROL / BOARD / LIFT"
-          : locked
-            ? "E TO INTERACT · ESC TO PAUSE"
-            : "DRAG / ARROWS TO LOOK · E TO INTERACT";
+      state.traversalMode === "tram"
+        ? "TRAM PASSENGER · LOOK FREELY · E AT STOPS"
+        : state.traversalMode === "trolley"
+          ? "W/S · DRIVE / REVERSE · LOOK FREELY · E · DOCK / SERVICE"
+          : state.traversalMode === "secured"
+            ? "MAG BOOTS · WASD · E · CONTROL / BOARD / LIFT"
+            : locked
+              ? "E TO INTERACT · ESC TO PAUSE"
+              : "DRAG / ARROWS TO LOOK · E TO INTERACT";
     setText(ui.footerRight, footerText);
   }
 
   function enter() {
     if (fatalError || mapOpen || habitatMap.isOpen()) return;
-    const request = ++lockRequest;
-    playing = true;
-    everLocked = false;
-    player.setEnabled(true);
-    delivery.setActive(true);
-    sunline.setActive(true);
-    setHidden(ui.intro, true);
-    setHidden(ui.pausePanel, true);
-    setHidden(ui.pauseBtn, false);
-    setHidden(ui.crosshair, false);
-    setHidden(ui.mission, false);
-    setHidden(ui.maintenance, false);
-    setHidden(ui.sunlineJob, false);
-    setHidden(ui.telemetry, false);
-    setHidden(ui.compactPhysics, false);
-    setHidden(ui.job, false);
-    setHidden(ui.jobScrollHint, false);
-    updateHUD();
-    hudTime = 0;
-    clock.getDelta();
-    renderer.setAnimationLoop(animate);
-    document.activeElement?.blur();
-    player.requestLock().then((locked) => {
-      if (!playing || request !== lockRequest) return;
-      updateFooter(player.getState(playerState), locked);
-    });
-    syncAudio(() => soundscape.setActive(true));
+    try {
+      const request = ++lockRequest;
+      playing = true;
+      everLocked = false;
+      player.setEnabled(true);
+      delivery.setActive(true);
+      sunline.setActive(true);
+      setHidden(ui.intro, true);
+      setHidden(ui.pausePanel, true);
+      setHidden(ui.pauseBtn, false);
+      setHidden(ui.crosshair, false);
+      setHidden(ui.mission, false);
+      setHidden(ui.maintenance, false);
+      setHidden(ui.sunlineJob, false);
+      setHidden(ui.telemetry, false);
+      setHidden(ui.compactPhysics, false);
+      setHidden(ui.job, false);
+      setHidden(ui.jobScrollHint, false);
+      updateHUD();
+      hudTime = 0;
+      clock.getDelta();
+      renderer.setAnimationLoop(animate);
+      document.activeElement?.blur();
+      player.requestLock().then((locked) => {
+        if (!playing || fatalError || request !== lockRequest) return;
+        updateFooter(player.getState(playerState), locked);
+      });
+      syncAudio(() => soundscape.setActive(true));
+    } catch (error) {
+      handleFatalError(error);
+    }
   }
   function getJobViews(state) {
     jobViews.delivery = delivery.getView(state);
@@ -450,20 +475,25 @@ try {
       jobs,
       selection,
       waypoint,
+      tram: tram.getState(tramMapSnapshot),
     };
   }
 
   function handleMapSelect(selection) {
     if (fatalError) return;
-    navigation.select(selection);
-    const snapshot = buildMapSnapshot();
-    if (habitatMap.isOpen()) {
-      habitatMap.render(snapshot);
-    }
-    if (playing && !mapOpen && snapshot.waypoint) {
-      waypointMarker.update(snapshot.player, snapshot.waypoint);
-    } else {
-      waypointMarker.hide();
+    try {
+      navigation.select(selection);
+      const snapshot = buildMapSnapshot();
+      if (habitatMap.isOpen()) {
+        habitatMap.render(snapshot);
+      }
+      if (playing && !mapOpen && snapshot.waypoint) {
+        waypointMarker.update(snapshot.player, snapshot.waypoint);
+      } else {
+        waypointMarker.hide();
+      }
+    } catch (error) {
+      handleFatalError(error);
     }
   }
 
@@ -479,25 +509,29 @@ try {
   function openMap() {
     if (fatalError || mapOpen || habitatMap.isOpen() || ui.mapBtn.disabled)
       return;
-    mapReturnFocus =
-      document.activeElement instanceof HTMLElement
-        ? document.activeElement
-        : null;
-    if (playing) {
-      mapReturnMode = "playing";
-      mapOpen = true;
-      pause({ showPanel: false });
-    } else if (!ui.intro.hidden) {
-      mapReturnMode = "intro";
-      mapOpen = true;
-    } else {
-      mapReturnMode = "pause";
-      mapOpen = true;
-      setHidden(ui.pausePanel, true);
+    try {
+      mapReturnFocus =
+        document.activeElement instanceof HTMLElement
+          ? document.activeElement
+          : null;
+      if (playing) {
+        mapReturnMode = "playing";
+        mapOpen = true;
+        pause({ showPanel: false });
+      } else if (!ui.intro.hidden) {
+        mapReturnMode = "intro";
+        mapOpen = true;
+      } else {
+        mapReturnMode = "pause";
+        mapOpen = true;
+        setHidden(ui.pausePanel, true);
+      }
+      waypointMarker.hide();
+      setAttr(ui.mapBtn, "aria-expanded", true);
+      habitatMap.open(buildMapSnapshot());
+    } catch (error) {
+      handleFatalError(error);
     }
-    waypointMarker.hide();
-    setAttr(ui.mapBtn, "aria-expanded", true);
-    habitatMap.open(buildMapSnapshot());
   }
 
   function restoreAfterMap(returnMode) {
@@ -588,25 +622,29 @@ try {
         .padStart(3, "0")} m`,
     );
     const motionText =
-      state.traversalMode === "trolley"
-        ? "TROLLEY · ON RAIL"
-        : state.traversalMode === "secured"
-          ? "MAG BOOTS SECURED"
-          : !state.grounded
-            ? "AIRBORNE"
-            : state.speed > 9
-              ? "SPRINTING"
-              : state.speed > 0.2
-                ? "WALKING"
-                : "ON FOOT";
+      state.traversalMode === "tram"
+        ? `TRAM PASSENGER · ${state.speed.toFixed(1)} m/s`
+        : state.traversalMode === "trolley"
+          ? "TROLLEY · ON RAIL"
+          : state.traversalMode === "secured"
+            ? "MAG BOOTS SECURED"
+            : !state.grounded
+              ? "AIRBORNE"
+              : state.speed > 9
+                ? "SPRINTING"
+                : state.speed > 0.2
+                  ? "WALKING"
+                  : "ON FOOT";
     setText(ui.motion, motionText);
     const heightLabel = `${Math.abs(state.height).toFixed(1)} m ${state.height < -0.05 ? "DOWN" : "UP"}`;
     const gravityLabel = `${(state.gravity / GRAVITY).toFixed(3)} G`;
     setText(ui.height, heightLabel);
     const gravityTitle =
-      state.height >= AXIAL_HEIGHT - 1
-        ? "At-rest apparent gravity. Magnetic boots or the rail supply mechanical support; Coriolis is deferred."
-        : "Apparent gravity at your feet, scaled with radius.";
+      state.traversalMode === "tram"
+        ? "Apparent gravity at tram floor height (13 m), scaled with radius. Mechanical support; Coriolis is deferred."
+        : state.height >= AXIAL_HEIGHT - 1
+          ? "At-rest apparent gravity. Magnetic boots or the rail supply mechanical support; Coriolis is deferred."
+          : "Apparent gravity at your feet, scaled with radius.";
     setAttr(ui.gravity, "title", gravityTitle);
     setText(ui.gravity, gravityLabel);
     setText(ui.compactPhysics, `${gravityLabel} · ${heightLabel}`);
@@ -615,21 +653,35 @@ try {
       ui.trackPosition.style.left = trackLeft;
     const arc = wrappedDeltaTheta(state.theta, 0) * RADIUS;
     const axialHub = getAxialHub(state);
-    const areaText = axialHub
-      ? `${axialHub.label.toUpperCase()} · MAINTENANCE HUB`
-      : state.traversalMode === "trolley"
-        ? "SUNLINE SERVICE SPINE"
-        : inServiceLevel(arc, state.y, state.height)
-          ? SERVICE_NAME.toUpperCase()
-          : inCity(arc, state.y)
-            ? CITY_NAME.toUpperCase()
-            : inDistrict(arc, state.y)
-              ? DISTRICT_NAME.toUpperCase()
-              : state.height < 2 && state.y < -ENDCAP_AREA_Y
-                ? "ENDCAP A · RIM ACCESS"
-                : state.height < 2 && state.y > ENDCAP_AREA_Y
-                  ? "ENDCAP B · RIM ACCESS"
-                  : "OUTER PROMENADE";
+    let areaText;
+    if (state.traversalMode === "tram") {
+      const tramState = tram.getState(tramHudSnapshot);
+      const stopId = tramState.stationId || tramState.nextStationId;
+      const stop = stopId ? TRAM_STOP_BY_ID.get(stopId) : null;
+      if (tramState.stationId && stop) {
+        areaText = `CIVILIAN TRAM · ${stop.name.toUpperCase()}`;
+      } else if (stop) {
+        areaText = `CIVILIAN TRAM · TO ${stop.name.toUpperCase()}`;
+      } else {
+        areaText = "CIVILIAN TRAM · ELEVATED GUIDEWAY";
+      }
+    } else if (axialHub) {
+      areaText = `${axialHub.label.toUpperCase()} · MAINTENANCE HUB`;
+    } else if (state.traversalMode === "trolley") {
+      areaText = "SUNLINE SERVICE SPINE";
+    } else if (inServiceLevel(arc, state.y, state.height)) {
+      areaText = SERVICE_NAME.toUpperCase();
+    } else if (inCity(arc, state.y)) {
+      areaText = CITY_NAME.toUpperCase();
+    } else if (inDistrict(arc, state.y)) {
+      areaText = DISTRICT_NAME.toUpperCase();
+    } else if (state.height < 2 && state.y < -ENDCAP_AREA_Y) {
+      areaText = "ENDCAP A · RIM ACCESS";
+    } else if (state.height < 2 && state.y > ENDCAP_AREA_Y) {
+      areaText = "ENDCAP B · RIM ACCESS";
+    } else {
+      areaText = "OUTER PROMENADE";
+    }
     setText(ui.area, areaText);
     updateFooter(state);
     let nearest = null;
@@ -654,6 +706,7 @@ try {
       );
       if (
         playing &&
+        state.traversalMode !== "tram" &&
         distance < landmark.radius &&
         state.height >= landmark.minHeight &&
         state.height <= (landmark.maxHeight ?? Infinity) &&
@@ -767,10 +820,29 @@ try {
       )
         closeDialogue();
     }
-    const lift = currentLift ? null : getSunlineTransfer(state) || getCityLift(state);
-    const prompt = lightJob.prompt || civicJob.prompt || job.prompt || reaction?.prompt || lift?.prompt;
+    const tramAction = pendingTransfer ? null : tram.getInteraction(state);
+    const lift =
+      pendingTransfer || state.traversalMode === "tram"
+        ? null
+        : getSunlineTransfer(state) || getCityLift(state);
+    let prompt = null;
+    if (!pendingTransfer) {
+      if (state.traversalMode === "tram") {
+        prompt = tramAction?.kind === "exit" ? tramAction.prompt : null;
+      } else if (tramAction?.kind === "board") {
+        prompt = tramAction.prompt;
+      } else {
+        prompt =
+          lightJob.prompt ||
+          civicJob.prompt ||
+          job.prompt ||
+          reaction?.prompt ||
+          lift?.prompt ||
+          (tramAction?.kind === "inspect" ? tramAction.prompt : null);
+      }
+    }
     const hideInteraction =
-      !playing || !prompt || !!currentLift || !!activeDialogue;
+      !playing || !prompt || !!pendingTransfer || !!activeDialogue;
     setHidden(ui.interaction, hideInteraction);
     if (prompt) setText(ui.interactionLabel, prompt);
     setHidden(ui.inventory, !playing || !job.inventory || !!activeDialogue);
@@ -789,6 +861,8 @@ try {
   ui.visitEndcapBtn.addEventListener("click", visitEndcap);
   ui.startGreenwayBtn.addEventListener("click", () => {
     if (fatalError || mapOpen || habitatMap.isOpen()) return;
+    cancelPendingTransfer();
+    closeDialogue();
     player.reset();
     enter();
   });
@@ -799,8 +873,7 @@ try {
   ui.soundBtn.addEventListener("click", toggleSound);
   ui.resetBtn.addEventListener("click", () => {
     if (fatalError || mapOpen || habitatMap.isOpen()) return;
-    currentLift = null;
-    ui.viewport.classList.remove("lift-travel");
+    cancelPendingTransfer();
     closeDialogue();
     player.reset();
     enter();
@@ -812,6 +885,7 @@ try {
       )
     )
       return;
+    cancelPendingTransfer();
     if (
       saveStore.save({
         discoveries: [],
@@ -824,6 +898,7 @@ try {
       window.location.reload();
     } else {
       updateSaveStatus();
+      updateHUD();
       showToast("Could not reset progress: browser storage is unavailable.", 6);
     }
   });
@@ -864,52 +939,97 @@ try {
       );
       return;
     }
-    if (!playing || currentLift || event.repeat || event.code !== "KeyE")
+    if (!playing || pendingTransfer || event.repeat || event.code !== "KeyE")
       return;
     event.preventDefault();
-    const state = player.getState(playerState);
-    const lightResult = sunline.interact(state);
-    if (lightResult) {
-      closeDialogue();
-      if (lightResult.changed) saveProgress();
-      showToast(lightResult.message, 6);
-      updateHUD();
-      return;
-    }
-    const civicResult = maintenance.interact(state);
-    if (civicResult) {
-      if (civicResult.changed) saveProgress();
-      if (civicResult.dialogue) showDialogue(civicResult.dialogue, CARETAKER);
-      else {
-        closeDialogue();
-        showToast(civicResult.message, 6);
+    try {
+      const state = player.getState(playerState);
+      const tramAction = tram.getInteraction(state);
+      if (state.traversalMode === "tram") {
+        if (tramAction?.kind === "exit") {
+          closeDialogue();
+          pendingTransfer = {
+            kind: "exit",
+            stationId: tramAction.stationId,
+            message: tramAction.message,
+          };
+          travelMoved = false;
+          travelAt = elapsed + 0.16;
+          travelEnd = elapsed + 0.34;
+          ui.viewport.classList.add("lift-travel");
+          updateHUD();
+        }
+        return;
       }
-      updateHUD();
-      return;
-    }
-    const result = delivery.interact(state);
-    if (result) {
-      closeDialogue();
-      saveProgress();
-      showToast(result.message, 5);
-      updateHUD();
-    } else {
+      if (tramAction?.kind === "board") {
+        closeDialogue();
+        pendingTransfer = {
+          kind: "board",
+          stationId: tramAction.stationId,
+          message: tramAction.message,
+        };
+        travelMoved = false;
+        travelAt = elapsed + 0.16;
+        travelEnd = elapsed + 0.34;
+        ui.viewport.classList.add("lift-travel");
+        updateHUD();
+        return;
+      }
+      const lightResult = sunline.interact(state);
+      if (lightResult) {
+        closeDialogue();
+        if (lightResult.changed) saveProgress();
+        showToast(lightResult.message, 6);
+        updateHUD();
+        return;
+      }
+      const civicResult = maintenance.interact(state);
+      if (civicResult) {
+        if (civicResult.changed) saveProgress();
+        if (civicResult.dialogue) showDialogue(civicResult.dialogue, CARETAKER);
+        else {
+          closeDialogue();
+          showToast(civicResult.message, 6);
+        }
+        updateHUD();
+        return;
+      }
+      const result = delivery.interact(state);
+      if (result) {
+        closeDialogue();
+        saveProgress();
+        showToast(result.message, 5);
+        updateHUD();
+        return;
+      }
       const reaction = residents.getReaction(state, sunline.getPhase());
       if (reaction) {
         showDialogue(reaction.dialogue, reaction.target);
         updateHUD();
         return;
       }
-      const lift = getSunlineTransfer(playerState) || getCityLift(playerState);
+      const lift = getSunlineTransfer(state) || getCityLift(state);
       if (lift) {
         closeDialogue();
-        currentLift = lift;
+        pendingTransfer = {
+          kind: "lift",
+          destination: lift.destination,
+          message: lift.message,
+        };
         travelMoved = false;
         travelAt = elapsed + 0.16;
         travelEnd = elapsed + 0.34;
         ui.viewport.classList.add("lift-travel");
         updateHUD();
+        return;
       }
+      if (tramAction?.kind === "inspect") {
+        closeDialogue();
+        if (tramAction.message) showToast(tramAction.message, 5);
+        updateHUD();
+      }
+    } catch (error) {
+      handleFatalError(error);
     }
   });
   renderer.domElement.addEventListener(
@@ -955,9 +1075,13 @@ try {
     renderer.setPixelRatio(Math.min(window.devicePixelRatio, 1.75));
     renderer.setSize(window.innerWidth, window.innerHeight);
     fitDialogueHUD();
-    if (!playing && !fatalError) renderScene();
-    if (!fatalError && mapOpen && habitatMap.isOpen()) {
-      habitatMap.render(buildMapSnapshot());
+    try {
+      if (!playing && !fatalError) renderScene();
+      if (!fatalError && mapOpen && habitatMap.isOpen()) {
+        habitatMap.render(buildMapSnapshot());
+      }
+    } catch (error) {
+      handleFatalError(error);
     }
   });
   renderer.domElement.addEventListener("webglcontextlost", (event) => {
@@ -980,33 +1104,87 @@ try {
     if (!playing || fatalError) return;
     const dt = Math.min(clock.getDelta(), 0.05);
     elapsed += dt;
-    if (currentLift && !travelMoved && elapsed >= travelAt) {
-      player.teleport(currentLift.destination);
-      travelMoved = true;
-      ui.viewport.classList.remove("lift-travel");
-      updateHUD();
-      showToast(currentLift.message);
-    }
-    if (currentLift && elapsed >= travelEnd) currentLift = null;
-    player.update(currentLift ? 0 : dt);
-    player.getState(playerState);
-    world.update(dt, elapsed, playerState);
     try {
-      soundscape.update(dt, playerState);
-    } catch (err) {
-      console.error(err);
+      tram.update(dt);
+      if (pendingTransfer && !travelMoved && elapsed >= travelAt) {
+        player.getState(playerState);
+        if (pendingTransfer.kind === "board") {
+          if (
+            tram.canCommitTransfer(
+              "board",
+              pendingTransfer.stationId,
+              playerState,
+            )
+          ) {
+            player.attachRide(tram);
+            travelMoved = true;
+            ui.viewport.classList.remove("lift-travel");
+            updateHUD();
+            if (pendingTransfer.message) showToast(pendingTransfer.message);
+          } else {
+            cancelPendingTransfer();
+            updateHUD();
+          }
+        } else if (pendingTransfer.kind === "exit") {
+          if (
+            tram.canCommitTransfer(
+              "exit",
+              pendingTransfer.stationId,
+              playerState,
+            )
+          ) {
+            const stop = TRAM_STOP_BY_ID.get(pendingTransfer.stationId);
+            if (!stop) {
+              throw new Error(
+                `Unknown tram stop: ${pendingTransfer.stationId}`,
+              );
+            }
+            player.teleport(stop);
+            travelMoved = true;
+            ui.viewport.classList.remove("lift-travel");
+            updateHUD();
+            if (pendingTransfer.message) showToast(pendingTransfer.message);
+          } else {
+            cancelPendingTransfer();
+            updateHUD();
+          }
+        } else {
+          player.teleport(pendingTransfer.destination);
+          travelMoved = true;
+          ui.viewport.classList.remove("lift-travel");
+          updateHUD();
+          if (pendingTransfer.message) showToast(pendingTransfer.message);
+        }
+      }
+      if (pendingTransfer && elapsed >= travelEnd) {
+        cancelPendingTransfer();
+        updateHUD();
+      }
+      player.update(pendingTransfer ? 0 : dt);
+      player.getState(playerState);
+      world.update(dt, elapsed, playerState);
+      try {
+        soundscape.update(dt, playerState);
+      } catch (err) {
+        console.error(err);
+      }
+      camera.layers.set(playerState.height < -1 ? 1 : 0);
+      hudTime += dt;
+      if (hudTime >= 0.1) {
+        updateHUD();
+        updateSoundControl();
+        hudTime = 0;
+      }
+    } catch (error) {
+      handleFatalError(error);
+      return;
     }
-    camera.layers.set(playerState.height < -1 ? 1 : 0);
-    hudTime += dt;
-    if (hudTime >= 0.1) {
-      updateHUD();
-      updateSoundControl();
-      hudTime = 0;
-    }
-    renderer.render(scene, camera);
+    if (!fatalError) renderer.render(scene, camera);
   }
 
+  tram.update(0);
   player.update(0);
+  player.getState(playerState);
   updateSoundControl();
   updateHUD();
   updateSaveStatus();

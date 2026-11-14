@@ -8,6 +8,7 @@ import { TOWER, SKYWALK_HEIGHT } from "./city-layout.js";
 import { CITY_LIFT_STOPS } from "./city-transit.js";
 import { AXIAL_HEIGHT, ENDCAP_HUBS, getAxialHub } from "./sunline-layout.js";
 import { SUNLINE_TRANSFERS } from "./sunline-transit.js";
+import { TRAM_THETA, TRAM_HEIGHT, TRAM_STOPS } from "./tram-layout.js";
 
 const TWO_PI = Math.PI * 2;
 const SEAM_MIN = -Math.PI / 2;
@@ -108,10 +109,25 @@ const sunlineAccessTargets = SUNLINE_TRANSFERS.filter(
   });
 });
 
+const tramAccessTargets = TRAM_STOPS.map((stop) => {
+  TARGET_RANGE_BY_ID.set(stop.id, stop.range ?? 3.2);
+  return Object.freeze({
+    id: stop.id,
+    name: stop.name,
+    theta: stop.theta,
+    y: stop.y,
+    height: stop.height,
+    kind: "tram",
+    layer: getNavigationLayer(stop.height),
+    hint: stop.hint,
+  });
+});
+
 export const NAV_TARGETS = Object.freeze([
   ...landmarkTargets,
   ...cityAccessTargets,
   ...sunlineAccessTargets,
+  ...tramAccessTargets,
 ]);
 
 const TARGET_BY_ID = new Map(NAV_TARGETS.map((target) => [target.id, target]));
@@ -164,6 +180,32 @@ const trolleyEndpoints = SUNLINE_TRANSFERS.filter(
   (stop) => stop.mode === "trolley",
 ).sort((a, b) => a.y - b.y);
 
+const TRAM_DISEMBARK_GUIDANCE = Object.freeze(
+  TRAM_STOPS.map((stop) =>
+    Object.freeze({
+      theta: TRAM_THETA,
+      y: stop.y,
+      height: TRAM_HEIGHT,
+      layer: getNavigationLayer(TRAM_HEIGHT),
+      name: `Disembark at ${stop.name}`,
+      kind: "tram",
+    }),
+  ),
+);
+
+const TRAM_DISEMBARK_BY_TARGET_ID = new Map();
+TRAM_STOPS.forEach((stop, index) => {
+  const guidance = TRAM_DISEMBARK_GUIDANCE[index];
+  TRAM_DISEMBARK_BY_TARGET_ID.set(stop.id, guidance);
+  if (Array.isArray(stop.landmarkIds)) {
+    for (const landmarkId of stop.landmarkIds) {
+      TRAM_DISEMBARK_BY_TARGET_ID.set(landmarkId, guidance);
+    }
+  }
+});
+
+const sortedTramStops = [...TRAM_STOPS].sort((a, b) => a.y - b.y);
+
 export const NAV_CONNECTIONS = Object.freeze([
   ...CITY_LIFT_STOPS.filter((stop) => stop.height === 0).map((stop) =>
     Object.freeze({
@@ -191,6 +233,25 @@ export const NAV_CONNECTIONS = Object.freeze([
           label: "Sunline maintenance trolley (Endcap A ↔ Endcap B)",
           from: makeConnectionPose(trolleyEndpoints[0]),
           to: makeConnectionPose(trolleyEndpoints[trolleyEndpoints.length - 1]),
+        }),
+      ]
+    : []),
+  ...(sortedTramStops.length >= 2
+    ? [
+        Object.freeze({
+          id: "link-civilian-tram",
+          type: "tram",
+          label: `Civilian tramway (${sortedTramStops[0].name} ↔ ${sortedTramStops[sortedTramStops.length - 1].name})`,
+          from: makeConnectionPose({
+            theta: TRAM_THETA,
+            y: sortedTramStops[0].y,
+            height: TRAM_HEIGHT,
+          }),
+          to: makeConnectionPose({
+            theta: TRAM_THETA,
+            y: sortedTramStops[sortedTramStops.length - 1].y,
+            height: TRAM_HEIGHT,
+          }),
         }),
       ]
     : []),
@@ -246,10 +307,65 @@ function nearestHub(playerState) {
   return best;
 }
 
+function getSurfaceApproachTarget(target) {
+  if (target.layer === "service") return SERVICE_LIFT_DOWN;
+  if (target.layer === "axial") {
+    return pickNearestStop(target, target, RIM_LIFT_GUIDANCE);
+  }
+  if (Math.abs(target.height - TOWER.observationHeight) <= ELEVATED_FLOOR_BAND) {
+    return MAIN_LIFT_UP;
+  }
+  if (Math.abs(target.height - SKYWALK_HEIGHT) <= ELEVATED_FLOOR_BAND) {
+    return SKYWALK_LIFT_UP;
+  }
+  return target;
+}
+
+function pickTramDisembark(playerState, target) {
+  const accessTarget = getSurfaceApproachTarget(target);
+  const associated =
+    (target.id && TRAM_DISEMBARK_BY_TARGET_ID.get(target.id)) ||
+    (accessTarget.id && TRAM_DISEMBARK_BY_TARGET_ID.get(accessTarget.id));
+  if (associated) return associated;
+
+  let best = TRAM_DISEMBARK_GUIDANCE[0];
+  let bestTargetDist = Infinity;
+  let bestPlayerDist = Infinity;
+  for (const stop of TRAM_DISEMBARK_GUIDANCE) {
+    const td = spatialDistance(
+      accessTarget.theta,
+      accessTarget.y,
+      accessTarget.height,
+      stop.theta,
+      stop.y,
+      stop.height,
+    );
+    const pd = spatialDistance(
+      playerState.theta,
+      playerState.y,
+      playerState.height,
+      stop.theta,
+      stop.y,
+      stop.height,
+    );
+    if (
+      td < bestTargetDist - 1e-6 ||
+      (Math.abs(td - bestTargetDist) <= 1e-6 && pd < bestPlayerDist)
+    ) {
+      best = stop;
+      bestTargetDist = td;
+      bestPlayerDist = pd;
+    }
+  }
+  return best;
+}
+
 function resolveGuidance(playerState, target) {
+  if (playerState.traversalMode === "tram") {
+    return pickTramDisembark(playerState, target);
+  }
   const playerLayer = getNavigationLayer(playerState.height);
   const targetLayer = target.layer;
-
   if (playerLayer === "service") {
     if (targetLayer === "service") return target;
     return SERVICE_LIFT_UP;
