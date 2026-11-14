@@ -31,7 +31,10 @@ const TRANSFERS = Object.freeze(ENDCAP_HUBS.flatMap((hub) => [
 export function getSunlineTransfer(state) {
   if (!state.grounded) return null;
   for (const stop of TRANSFERS) {
-    if (state.traversalMode !== stop.mode || Math.abs(state.height - stop.height) > 0.35)
+    if (
+      state.traversalMode !== stop.mode ||
+      !(state.height >= stop.height - 0.35 && state.height <= stop.height + 0.35)
+    )
       continue;
     if (
       horizontalDistance(

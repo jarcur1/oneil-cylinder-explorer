@@ -2,7 +2,13 @@ import test from "node:test";
 import assert from "node:assert/strict";
 import { PerspectiveCamera } from "three";
 import { createPlayer } from "../src/player.js";
-import { RADIUS, EYE_HEIGHT, GRAVITY, gravityAtHeight } from "../src/habitat.js";
+import {
+  RADIUS,
+  LENGTH,
+  EYE_HEIGHT,
+  GRAVITY,
+  gravityAtHeight,
+} from "../src/habitat.js";
 import {
   SPINE_THETA,
   AXIAL_HEIGHT,
@@ -165,8 +171,9 @@ test("gravityAtHeight computes linear radial gravity scaled from axis to undergr
   assert.equal(gravityAtHeight(0), GRAVITY);
   assert.equal(gravityAtHeight(RADIUS), 0);
   assert.equal(gravityAtHeight(RADIUS + 50), 0);
-  assert.equal(gravityAtHeight(-8), (GRAVITY * 188) / RADIUS);
-  assert.equal(gravityAtHeight(42), (GRAVITY * 138) / RADIUS);
+  assert.equal(gravityAtHeight(-8), (GRAVITY * (RADIUS + 8)) / RADIUS);
+  assert.equal(gravityAtHeight(42), (GRAVITY * (RADIUS - 42)) / RADIUS);
+  assert.equal(gravityAtHeight(RADIUS / 2), GRAVITY * 0.5);
 });
 
 test("underground support floor bounds teleport, catches fast falls, and supports walking", () => {
@@ -351,9 +358,9 @@ test("equal launches jump lower underground and higher toward the spin axis", ()
   const underground = jumpAt(-8, [], { groundHeight: -8 });
   const surface = jumpAt(0, []);
   const skyroom = jumpAt(42, [{ ...deck, base: 41.6, height: 0.4 }]);
-  assert.ok(Math.abs(underground.gravity - 10.246) < 0.01);
-  assert.ok(Math.abs(surface.gravity - 9.81) < 0.01);
-  assert.ok(Math.abs(skyroom.gravity - 7.521) < 0.01);
+  assert.ok(Math.abs(underground.gravity - (GRAVITY * (RADIUS + 8)) / RADIUS) < 1e-6);
+  assert.ok(Math.abs(surface.gravity - GRAVITY) < 1e-6);
+  assert.ok(Math.abs(skyroom.gravity - (GRAVITY * (RADIUS - 42)) / RADIUS) < 1e-6);
   assert.ok(underground.rise > 1, "a real unimpeded jump occurs below ground");
   assert.ok(underground.rise < surface.rise, "outward depth reduces jump height");
   assert.ok(surface.rise < skyroom.rise, "inward altitude increases jump height");
@@ -363,6 +370,7 @@ test("equal launches jump lower underground and higher toward the spin axis", ()
 
 test("secured mode clamps relative angle across PI seam and bounds Y to hub limits", () => {
   const hub = ENDCAP_HUBS[0];
+  const hubMidY = (hub.constraint.minY + hub.constraint.maxY) / 2;
   scenario([], ({ player, key, frames, state }) => {
     player.teleport(hub.landing);
     assert.equal(state().traversalMode, "secured");
@@ -373,7 +381,7 @@ test("secured mode clamps relative angle across PI seam and bounds Y to hub limi
     // Walking across the PI seam: start near Math.PI on the positive side
     player.teleport({
       theta: Math.PI - 0.1,
-      y: -424,
+      y: hubMidY,
       height: AXIAL_HEIGHT,
       yaw: Math.PI / 2, // Facing +theta direction
       constraint: hub.constraint,
@@ -389,7 +397,7 @@ test("secured mode clamps relative angle across PI seam and bounds Y to hub limi
 
     // Continue walking until hitting maxDTheta clamp (0.5 rad from Math.PI)
     frames(50);
-    const expectedMaxTheta = Math.PI + 0.5 - 2 * Math.PI; // -2.64159...
+    const expectedMaxTheta = Math.PI + hub.constraint.maxDTheta - 2 * Math.PI;
     assert.ok(
       Math.abs(state().theta - expectedMaxTheta) < 0.001,
       `clamped at max relative angle: got ${state().theta}, expected ${expectedMaxTheta}`,
@@ -399,17 +407,17 @@ test("secured mode clamps relative angle across PI seam and bounds Y to hub limi
     key("KeyW", false);
     key("KeyS", true);
     frames(100);
-    const expectedMinTheta = Math.PI - 0.5; // 2.64159...
+    const expectedMinTheta = Math.PI + hub.constraint.minDTheta;
     assert.ok(
       Math.abs(state().theta - expectedMinTheta) < 0.001,
       `clamped at min relative angle: got ${state().theta}, expected ${expectedMinTheta}`,
     );
     key("KeyS", false);
 
-    // Face +Y and walk forward toward maxY limit (-413)
+    // Face +Y and walk forward toward maxY limit
     player.teleport({
       theta: SPINE_THETA,
-      y: -424,
+      y: hubMidY,
       height: AXIAL_HEIGHT,
       yaw: 0,
       constraint: hub.constraint,
@@ -422,10 +430,10 @@ test("secured mode clamps relative angle across PI seam and bounds Y to hub limi
     );
     key("KeyW", false);
 
-    // Face -Y and walk forward toward minY limit (-429)
+    // Face -Y and walk forward toward minY limit
     player.teleport({
       theta: SPINE_THETA,
-      y: -424,
+      y: hubMidY,
       height: AXIAL_HEIGHT,
       yaw: Math.PI,
       constraint: hub.constraint,
@@ -441,9 +449,11 @@ test("secured mode clamps relative angle across PI seam and bounds Y to hub limi
 
 test("secured mode preserves obstacle collision and ignores jump and sprint", () => {
   const hub = ENDCAP_HUBS[0];
+  const hubMidY = (hub.constraint.minY + hub.constraint.maxY) / 2;
+  const wallY = hubMidY + 4;
   const hubWall = {
     theta: SPINE_THETA,
-    y: -420,
+    y: wallY,
     width: 3,
     depth: 2,
     base: AXIAL_HEIGHT - 0.5,
@@ -452,20 +462,20 @@ test("secured mode preserves obstacle collision and ignores jump and sprint", ()
   scenario([hubWall], ({ player, key, frames, state }) => {
     player.teleport({
       theta: SPINE_THETA,
-      y: -425,
+      y: hubMidY - 1,
       height: AXIAL_HEIGHT,
       yaw: 0,
       constraint: hub.constraint,
     });
 
-    // Walk forward into wall at y = -420 (half-depth 1.0, player radius 0.45)
+    // Walk forward into wall (half-depth 1.0, player radius 0.45)
     key("KeyW", true);
     frames(60);
     assert.ok(
-      state().y < -421.4,
+      state().y < wallY - 1.4,
       `obstacle blocked progress: got y=${state().y}`,
     );
-    assert.ok(state().y > -422.5, "player reached obstacle wall");
+    assert.ok(state().y > wallY - 2.5, "player reached obstacle wall");
 
     // Jump should be ignored in secured mode: height must remain pinned
     key("Space", true);
@@ -478,11 +488,11 @@ test("secured mode preserves obstacle collision and ignores jump and sprint", ()
     assert.equal(state().grounded, true);
     key("Space", false);
 
-    // Sprint should be ignored in secured mode: physical speed remains activeConstraint.speed (3.0)
+    // Sprint should be ignored in secured mode: physical speed remains activeConstraint.speed
     key("KeyW", false);
     player.teleport({
       theta: SPINE_THETA,
-      y: -426,
+      y: hubMidY - 2,
       height: AXIAL_HEIGHT,
       yaw: 0,
       constraint: hub.constraint,
@@ -491,8 +501,8 @@ test("secured mode preserves obstacle collision and ignores jump and sprint", ()
     key("ShiftLeft", true);
     frames(2);
     assert.ok(
-      Math.abs(state().speed - 3.0) < 0.01,
-      `speed must be 3.0 (sprint ignored in secured mode), got ${state().speed}`,
+      Math.abs(state().speed - hub.constraint.speed) < 0.01,
+      `speed must be ${hub.constraint.speed} (sprint ignored in secured mode), got ${state().speed}`,
     );
   });
 });
@@ -522,14 +532,14 @@ test("trolley mode drives rail-authoritatively with independent look, ignoring s
     // Drive forward with W: movement is strictly along +Y (direction: 1), unaffected by yaw
     key("KeyW", true);
     frames(20);
-    assert.ok(state().y > -410 + 15, "trolley drove forward along +Y");
+    assert.ok(state().y > hubA.trolley.y + 15, "trolley drove forward along +Y");
     assert.ok(
       Math.abs(Math.sin(state().theta - SPINE_THETA)) < 1e-6,
       "theta stays fixed on rail",
     );
     assert.ok(
-      Math.abs(state().speed - 18) < 0.01,
-      "trolley moves at rail speed 18",
+      Math.abs(state().speed - hubA.trolley.constraint.speed) < 0.01,
+      `trolley moves at rail speed ${hubA.trolley.constraint.speed}`,
     );
 
     // Strafe (A then D independently) must be ignored
@@ -551,7 +561,7 @@ test("trolley mode drives rail-authoritatively with independent look, ignoring s
     assert.equal(state().height, AXIAL_HEIGHT, "jump ignored on trolley");
     assert.equal(state().grounded, true);
     assert.ok(
-      Math.abs(state().speed - 18) < 0.01,
+      Math.abs(state().speed - hubA.trolley.constraint.speed) < 0.01,
       "sprint ignored on trolley",
     );
     key("KeyW", false);
@@ -577,49 +587,50 @@ test("trolley mode drives rail-authoritatively with independent look, ignoring s
 test("trolley direction property drives forward/reverse correctly and hard-clamps at rail endpoints", () => {
   const hubA = ENDCAP_HUBS[0]; // direction: 1
   const hubB = ENDCAP_HUBS[1]; // direction: -1
+  const { minY, maxY } = hubA.trolley.constraint;
   scenario([], ({ player, key, frames, state }) => {
     // Endcap A: direction 1 -> W drives toward +Y, S reverses toward -Y
     player.teleport({
       theta: SPINE_THETA,
-      y: 405,
+      y: maxY - 5,
       height: AXIAL_HEIGHT,
       constraint: hubA.trolley.constraint,
     });
     assert.equal(state().railDirection, 1);
     key("KeyW", true);
-    frames(20); // tries to travel past 410
-    assert.equal(state().y, 410, "hard-clamped at maxY endpoint 410");
+    frames(20); // tries to travel past maxY
+    assert.equal(state().y, maxY, `hard-clamped at maxY endpoint ${maxY}`);
     assert.equal(state().speed, 0, "speed zero when clamped at rail endpoint");
 
     key("KeyW", false);
     key("KeyS", true); // reverse back toward -Y
     frames(10);
-    assert.ok(state().y < 405, "reverse drives backward along Y");
+    assert.ok(state().y < maxY - 5, "reverse drives backward along Y");
     key("KeyS", false);
 
     // Endcap B: direction -1 -> W drives toward -Y, S reverses toward +Y
     player.teleport(hubB.trolley);
     assert.equal(state().railDirection, -1);
-    assert.equal(state().y, 410);
+    assert.equal(state().y, maxY);
 
     key("KeyW", true);
     frames(10);
     assert.ok(
-      state().y < 410,
+      state().y < maxY,
       "W drives in -Y direction when trolley direction is -1",
     );
     key("KeyW", false);
 
-    // Hard clamp at minY endpoint (-410)
+    // Hard clamp at minY endpoint
     player.teleport({
       theta: SPINE_THETA,
-      y: -405,
+      y: minY + 5,
       height: AXIAL_HEIGHT,
       constraint: hubB.trolley.constraint,
     });
     key("KeyW", true); // drives toward -Y
     frames(20);
-    assert.equal(state().y, -410, "hard-clamped at minY endpoint -410");
+    assert.equal(state().y, minY, `hard-clamped at minY endpoint ${minY}`);
     assert.equal(state().speed, 0, "speed zero at minY rail endpoint");
   });
 });
@@ -677,6 +688,8 @@ test("invalid constraint throws atomically before mutating player state", () => 
     const baseline = { ...state() };
     assert.equal(baseline.traversalMode, "walk");
 
+    const hubConstraint = ENDCAP_HUBS[0].constraint;
+    const trolleyConstraint = ENDCAP_HUBS[0].trolley.constraint;
     const invalidConstraints = [
       { mode: "invalid" },
       {
@@ -684,18 +697,18 @@ test("invalid constraint throws atomically before mutating player state", () => 
         height: NaN,
         theta: Math.PI,
         speed: 3,
-        minY: -429,
-        maxY: -413,
+        minY: hubConstraint.minY,
+        maxY: hubConstraint.maxY,
         minDTheta: -0.5,
         maxDTheta: 0.5,
       },
       {
         mode: "secured",
-        height: 180,
+        height: RADIUS,
         theta: Math.PI,
         speed: 3,
-        minY: -429,
-        maxY: -413,
+        minY: hubConstraint.minY,
+        maxY: hubConstraint.maxY,
         minDTheta: -0.5,
         maxDTheta: 0.5,
       },
@@ -704,34 +717,44 @@ test("invalid constraint throws atomically before mutating player state", () => 
         height: -1,
         theta: Math.PI,
         speed: 3,
-        minY: -429,
-        maxY: -413,
+        minY: hubConstraint.minY,
+        maxY: hubConstraint.maxY,
         minDTheta: -0.5,
         maxDTheta: 0.5,
       },
       {
         mode: "secured",
-        height: 170,
+        height: AXIAL_HEIGHT,
         theta: Math.PI,
         speed: 0,
-        minY: -429,
-        maxY: -413,
+        minY: hubConstraint.minY,
+        maxY: hubConstraint.maxY,
         minDTheta: -0.5,
         maxDTheta: 0.5,
       },
       {
         mode: "secured",
-        height: 170,
+        height: AXIAL_HEIGHT,
         theta: Math.PI,
         speed: 3,
-        minY: -500,
+        minY: -LENGTH / 2,
         maxY: 0,
         minDTheta: -0.5,
         maxDTheta: 0.5,
       },
       {
         mode: "secured",
-        height: 170,
+        height: AXIAL_HEIGHT,
+        theta: Math.PI,
+        speed: 3,
+        minY: 0,
+        maxY: LENGTH / 2,
+        minDTheta: -0.5,
+        maxDTheta: 0.5,
+      },
+      {
+        mode: "secured",
+        height: AXIAL_HEIGHT,
         theta: Math.PI,
         speed: 3,
         minY: 10,
@@ -741,40 +764,40 @@ test("invalid constraint throws atomically before mutating player state", () => 
       },
       {
         mode: "secured",
-        height: 170,
+        height: AXIAL_HEIGHT,
         theta: Math.PI,
         speed: 3,
-        minY: -429,
-        maxY: -413,
+        minY: hubConstraint.minY,
+        maxY: hubConstraint.maxY,
         minDTheta: -4,
         maxDTheta: 0.5,
       },
       {
         mode: "secured",
-        height: 170,
+        height: AXIAL_HEIGHT,
         theta: Math.PI,
         speed: 3,
-        minY: -429,
-        maxY: -413,
+        minY: hubConstraint.minY,
+        maxY: hubConstraint.maxY,
         minDTheta: 0.5,
         maxDTheta: -0.5,
       },
       {
         mode: "trolley",
-        height: 170,
+        height: AXIAL_HEIGHT,
         theta: Math.PI,
         speed: 18,
-        minY: -410,
-        maxY: 410,
+        minY: trolleyConstraint.minY,
+        maxY: trolleyConstraint.maxY,
         direction: 0,
       },
       {
         mode: "trolley",
-        height: 170,
+        height: AXIAL_HEIGHT,
         theta: Math.PI,
         speed: 18,
-        minY: -410,
-        maxY: 410,
+        minY: trolleyConstraint.minY,
+        maxY: trolleyConstraint.maxY,
         direction: 2,
       },
       "not-an-object",
@@ -810,28 +833,48 @@ test("invalid constraint throws atomically before mutating player state", () => 
       assert.equal(state().traversalMode, baseline.traversalMode);
       assert.equal(state().railDirection, baseline.railDirection);
     }
+
+    // Previously out-of-bounds -500 is valid inside the expanded cylinder length
+    player.teleport({
+      theta: Math.PI,
+      y: -500,
+      height: AXIAL_HEIGHT,
+      constraint: {
+        mode: "secured",
+        height: AXIAL_HEIGHT,
+        theta: Math.PI,
+        speed: 3,
+        minY: -500,
+        maxY: 0,
+        minDTheta: -0.5,
+        maxDTheta: 0.5,
+      },
+    });
+    assert.equal(state().traversalMode, "secured");
+    assert.equal(state().y, -500);
   });
 });
 
-test("fallback walk at h170 under roof174.5 cannot cross axis", () => {
+test("fallback walk at axial height under spine roof cannot cross axis", () => {
+  const dockY = ENDCAP_HUBS[0].dock.y;
   const roof = {
     theta: SPINE_THETA,
-    y: -420,
+    y: dockY,
     width: 20,
     depth: 20,
-    base: SPINE_ROOF_HEIGHT, // 174.5
+    base: SPINE_ROOF_HEIGHT,
     height: 1.0,
   };
   const floor = {
     theta: SPINE_THETA,
-    y: -420,
+    y: dockY,
     width: 20,
     depth: 20,
     base: AXIAL_HEIGHT - 0.6,
-    height: 0.6, // top is 170
+    height: 0.6,
   };
   scenario([floor, roof], ({ player, key, frames, state }) => {
-    player.teleport({ theta: SPINE_THETA, y: -420, height: AXIAL_HEIGHT });
+    player.teleport({ theta: SPINE_THETA, y: dockY, height: AXIAL_HEIGHT });
     assert.equal(state().traversalMode, "walk");
     assert.equal(state().height, AXIAL_HEIGHT);
     assert.equal(state().grounded, true);
@@ -847,14 +890,14 @@ test("fallback walk at h170 under roof174.5 cannot cross axis", () => {
       peak = Math.max(peak, state().height);
     }
 
-    // Body height is EYE_HEIGHT + 0.15 = 1.85, arresting at roof.base - 1.85 = 172.65
+    // Body height is EYE_HEIGHT + 0.15 = 1.85, arresting at roof.base - 1.85
     assert.ok(
       peak <= SPINE_ROOF_HEIGHT - (EYE_HEIGHT + 0.15) + 1e-9,
       `peak jump ${peak} arrested by ceiling at ${SPINE_ROOF_HEIGHT}`,
     );
     assert.ok(
       peak < RADIUS,
-      "jump cannot penetrate roof to cross axis at RADIUS 180",
+      `jump cannot penetrate roof to cross axis at RADIUS ${RADIUS}`,
     );
     assert.equal(state().height, AXIAL_HEIGHT, "player lands back on axial floor");
     assert.equal(state().grounded, true);
@@ -862,7 +905,7 @@ test("fallback walk at h170 under roof174.5 cannot cross axis", () => {
 });
 
 test("out-of-range teleport resolves support after clamping its position", () => {
-  const boundaryDeck = { ...deck, y: 440, depth: 20 };
+  const boundaryDeck = { ...deck, y: LENGTH / 2 - 10, depth: 20 };
   scenario([boundaryDeck], ({ player, state }) => {
     player.teleport({ theta: 0, y: 10000, height: 9 });
     assert.equal(state().height, 9);
@@ -878,7 +921,7 @@ test("independent A then D strafe moves opposite lateral directions at walking s
     frames(10);
     key("KeyA", false);
     const afterA = { ...state() };
-    assert.ok(afterA.theta < -0.01, `KeyA strafes left (-theta), got ${afterA.theta}`);
+    assert.ok(afterA.theta * RADIUS < -3.0, `KeyA strafes left (-theta), got arc ${afterA.theta * RADIUS}`);
     assert.ok(Math.abs(afterA.speed - 7) < 0.01, `KeyA speed ${afterA.speed}`);
     assert.ok(Math.abs(afterA.y - -300) < 1e-6, "KeyA preserves longitudinal y at yaw=0");
 
@@ -886,9 +929,9 @@ test("independent A then D strafe moves opposite lateral directions at walking s
     frames(10);
     key("KeyD", false);
     const afterD = { ...state() };
-    assert.ok(afterD.theta > afterA.theta + 0.01, `KeyD strafes right (+theta), got ${afterD.theta}`);
+    assert.ok((afterD.theta - afterA.theta) * RADIUS > 3.0, `KeyD strafes right (+theta), got delta arc ${(afterD.theta - afterA.theta) * RADIUS}`);
     assert.ok(Math.abs(afterD.speed - 7) < 0.01, `KeyD speed ${afterD.speed}`);
-    assert.ok(Math.abs(afterD.theta) < 1e-3, `KeyD returns near start theta, got ${afterD.theta}`);
+    assert.ok(Math.abs(afterD.theta * RADIUS) < 0.2, `KeyD returns near start theta, got arc ${afterD.theta * RADIUS}`);
     assert.ok(Math.abs(afterD.y - -300) < 1e-6, "KeyD preserves longitudinal y at yaw=0");
   });
 });

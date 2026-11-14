@@ -34,14 +34,15 @@ function calcViewDistance(playerState, target) {
 /**
  * Target eligibility safeguard:
  * - Must be grounded (not airborne)
- * - Feet height within 0.35m of target elevation (|height - target.height| <= 0.35)
+ * - Feet height within 0.35m of target elevation (target.height - 0.35 <= height <= target.height + 0.35)
  * - Traversal mode must match required mode exactly (console: 'secured', module: 'trolley')
  * - Physical wrapped horizontal distance at target radius <= target.range
  */
 function isTargetEligible(playerState, target, expectedMode) {
   return !!playerState?.grounded &&
     playerState.traversalMode === expectedMode &&
-    Math.abs(playerState.height - target.height) <= 0.35 &&
+    playerState.height >= target.height - 0.35 &&
+    playerState.height <= target.height + 0.35 &&
     horizontalDistance(
       playerState.theta,
       playerState.y,

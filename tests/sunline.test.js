@@ -1,7 +1,16 @@
 import test from "node:test";
 import assert from "node:assert/strict";
 import { createSunlineState } from "../src/sunline-state.js";
-import { ENDCAP_HUBS, SUNLINE_PANEL, AXIAL_HEIGHT, SPINE_THETA } from "../src/sunline-layout.js";
+import {
+  ENDCAP_HUBS,
+  SUNLINE_PANEL,
+  AXIAL_HEIGHT,
+  SPINE_THETA,
+  SUNLINE_TRACK_MIN_Y,
+  SUNLINE_TRACK_MAX_Y,
+  getAxialHub,
+} from "../src/sunline-layout.js";
+import { getSunlineTransfer } from "../src/sunline-transit.js";
 
 const controlA = ENDCAP_HUBS[0].control;
 const controlB = ENDCAP_HUBS[1].control;
@@ -96,12 +105,14 @@ test("PI-seam wrapping permits nearby servicing but rejects the opposite side", 
   assert.equal(moduleJob.interact(nearby).changed, true);
 });
 
-test("navigation includes the 170m radial transfer and selects the nearer endcap", () => {
+test("navigation includes the axial radial transfer and selects the nearer endcap", () => {
   const job = createSunlineState();
   assert.ok(Math.abs(job.getView(at(controlA, "walk", { height: 0 })).distance - AXIAL_HEIGHT) < 1e-10);
   assert.ok(job.getView(at(controlA, "secured")).distance < 1e-10);
-  assert.ok(job.getView({ theta: SPINE_THETA, y: -400, height: AXIAL_HEIGHT }).target.y < 0);
-  assert.ok(job.getView({ theta: SPINE_THETA, y: 400, height: AXIAL_HEIGHT }).target.y > 0);
+  assert.equal(job.getView({ theta: SPINE_THETA, y: -400, height: AXIAL_HEIGHT }).target.y, controlA.y);
+  assert.equal(job.getView({ theta: SPINE_THETA, y: 400, height: AXIAL_HEIGHT }).target.y, controlB.y);
+  assert.equal(job.getView({ theta: SPINE_THETA, y: -850, height: AXIAL_HEIGHT }).target.y, controlA.y);
+  assert.equal(job.getView({ theta: SPINE_THETA, y: 850, height: AXIAL_HEIGHT }).target.y, controlB.y);
 });
 
 test("restored isolated and replaced jobs resume only the unfinished steps", () => {
@@ -114,4 +125,62 @@ test("restored isolated and replaced jobs resume only the unfinished steps", () 
   assert.equal(replaced.interact(at(SUNLINE_PANEL, "trolley")).changed, false);
   assert.equal(replaced.interact(console).changed, true);
   assert.equal(replaced.getPhase(), "complete");
+});
+
+test("relocated endcaps and SL-02 operate beyond old bounds and reject old coordinates", () => {
+  assert.ok(controlA.y < -450, "Endcap A relocated beyond old -450m bound");
+  assert.ok(controlB.y > 450, "Endcap B relocated beyond old +450m bound");
+  assert.ok(SUNLINE_PANEL.y < -450, "SL-02 sits beyond old -450m bound");
+  assert.ok(
+    SUNLINE_PANEL.y >= SUNLINE_TRACK_MIN_Y && SUNLINE_PANEL.y <= SUNLINE_TRACK_MAX_Y,
+    "SL-02 remains reachable inside trolley track bounds",
+  );
+
+  // Old endcap Y coordinates must no longer resolve hubs, transfers, or console interactions
+  const job = createSunlineState("available");
+  for (const oldY of [-424, -422, -414, -410, 410, 414, 422, 424]) {
+    assert.equal(getAxialHub({ theta: SPINE_THETA, y: oldY, height: AXIAL_HEIGHT }), null);
+    assert.equal(getSunlineTransfer({ theta: SPINE_THETA, y: oldY, height: 0, grounded: true, traversalMode: "walk" }), null);
+    assert.equal(getSunlineTransfer({ theta: SPINE_THETA, y: oldY, height: AXIAL_HEIGHT, grounded: true, traversalMode: "secured" }), null);
+    assert.equal(getSunlineTransfer({ theta: SPINE_THETA, y: oldY, height: AXIAL_HEIGHT, grounded: true, traversalMode: "trolley" }), null);
+    assert.equal(job.interact({ theta: controlA.theta, y: oldY, height: AXIAL_HEIGHT, grounded: true, traversalMode: "secured" }), null);
+  }
+
+  // Both remote endcaps support full rim <-> landing <-> dock <-> trolley transfers
+  for (const hub of ENDCAP_HUBS) {
+    assert.equal(getAxialHub(hub.landing)?.id, hub.id);
+    const up = getSunlineTransfer({ ...hub.rim, grounded: true, traversalMode: "walk" });
+    assert.equal(up.destination.y, hub.landing.y);
+    assert.equal(up.destination.constraint.mode, "secured");
+    const board = getSunlineTransfer({ ...hub.dock, grounded: true, traversalMode: "secured" });
+    assert.equal(board.destination.y, hub.trolley.y);
+    assert.equal(board.destination.constraint.mode, "trolley");
+    const disembark = getSunlineTransfer({ ...hub.trolley, grounded: true, traversalMode: "trolley" });
+    assert.equal(disembark.destination.y, hub.dock.y);
+    const down = getSunlineTransfer({ ...hub.landing, grounded: true, traversalMode: "secured" });
+    assert.equal(down.destination.y, hub.rim.y);
+    assert.equal(down.destination.height, 0);
+  }
+});
+
+test("transfer eligibility preserves inclusive 0.35m floor bounds at axial height and rejects outside or invalid poses", () => {
+  const hub = ENDCAP_HUBS[0];
+  for (const [stop, mode, dest, wrongModes] of [
+    [hub.rim, "walk", hub.landing, ["secured", "trolley"]],
+    [hub.landing, "secured", hub.rim, ["walk", "trolley"]],
+    [hub.trolley, "trolley", hub.dock, ["walk", "secured"]],
+  ]) {
+    for (const deltaHeight of [-0.35, 0.35]) {
+      const transfer = getSunlineTransfer(at(stop, mode, { height: stop.height + deltaHeight }));
+      assert.equal(transfer?.destination.y, dest.y);
+    }
+    for (const override of [
+      ...wrongModes.map((traversalMode) => ({ traversalMode })),
+      { grounded: false },
+      { height: stop.height - 0.36 },
+      { height: stop.height + 0.36 },
+    ]) {
+      assert.equal(getSunlineTransfer(at(stop, mode, override)), null);
+    }
+  }
 });

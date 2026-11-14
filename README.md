@@ -1,6 +1,6 @@
 # New Dawn — Cylinder Explorer
 
-A first-person browser game inside an O’Neill-inspired cylinder. Start at **Endcap A**, take a radial lift to a low-gravity maintenance hub, and ride an **820 m axial service trolley** to repair part of the habitat’s artificial sunline. Isolating SL-02 dims **Greenway Commons** to emergency lighting; restore it to bring daylight back and hear the market merchant’s response. Explore **Meridian Civic District**, its 42 m Skyroom, public Skywalk, and enclosed service level 8 m beneath the living surface. Nine residents walk the neighborhoods; discoveries, three jobs, and mute preference save locally. Built with vanilla JavaScript, Three.js, and Vite; no account, API keys, or external art downloads.
+A first-person browser game inside an O’Neill-inspired cylinder. Start at **Endcap A**, take a radial lift to a low-gravity maintenance hub, and ride a **1720 m axial service trolley** to repair part of the habitat’s artificial sunline. Isolating SL-02 dims **Greenway Commons** to emergency lighting; restore it to bring daylight back and hear the market merchant’s response. Explore **Meridian Civic District**, its 42 m Skyroom, public Skywalk, and enclosed service level 8 m beneath the living surface. Nine residents walk the neighborhoods; discoveries, three jobs, and mute preference save locally. Built with vanilla JavaScript, Three.js, and Vite; no account, API keys, or external art downloads.
 
 ## Run
 
@@ -38,7 +38,7 @@ The pause menu offers Endcap A and both neighborhood entrances without erasing d
 
 ## Endcaps and sunline maintenance
 
-At **Endcap A rim access**, approach the marked pad and press **E**. The radial lift arrives in an enclosed maintenance hub **170 m above the living surface**, only **10 m from the spin axis**. Its at-rest gravity is **0.056 g**. Magnetic boots secure your feet: WASD walks slowly, with no sprinting or jumping. The return pad brings you back to the **1.000 g** rim.
+At **Endcap A rim access**, approach the marked pad and press **E**. The radial lift arrives in an enclosed maintenance hub **350 m above the living surface**, only **10 m from the spin axis**. Its at-rest gravity is **0.028 g** (`10/360 g`). Magnetic boots secure your feet: WASD walks slowly, with no sprinting or jumping. The return pad brings you back to the **1.000 g** rim.
 
 The **Sunline Engineering** card tracks a three-step job:
 
@@ -46,9 +46,9 @@ The **Sunline Engineering** card tracks a three-step job:
 2. Board at the marked gate with **E**. **W** drives toward the opposite endcap; **S** reverses. Stop at the SL-02 service station and press **E** to install the spare emitter carried aboard.
 3. Reach either endcap, press **E** at the dock to disembark, and use its console to restore power.
 
-The trolley travels the full **820 m** between Endcaps A and B. Looking does not steer; strafe, sprint, and jump do not detach you from the rail. Disembarking is possible only at the end docks. Secured hub bounds, corridor walls, and a continuous overhead roof keep the route on the habitable side of the axis. Transfers use the existing short fade rather than animated lift cabins.
+The trolley travels the full **1720 m** between Endcaps A and B (`y ∈ [−860, +860]`). Looking does not steer; strafe, sprint, and jump do not detach you from the rail. Disembarking is possible only at the end docks. Secured hub bounds, corridor walls, and a continuous overhead roof keep the route on the habitable side of the axis. Transfers use the existing short fade rather than animated lift cabins.
 
-The artificial axial luminaire has **nine visual sections** spanning 892 m. Only the assigned SL-02 section goes dark while isolated or awaiting restoration; its casing remains visible, the other eight sections stay lit, and the spare/installed emitter props follow the job. Both endcap console faces and the Sunline Engineering card report **Greenway Commons · DAYLIGHT ONLINE** or **EMERGENCY LIGHTING**. Other machinery labels remain scenery.
+The artificial axial luminaire has **nine visual sections** spanning **1792 m** (`LENGTH − 8`). Only the assigned SL-02 section goes dark while isolated or awaiting restoration; its casing remains visible, the other eight sections stay lit, and the spare/installed emitter props follow the job. Both endcap console faces and the Sunline Engineering card report **Greenway Commons · DAYLIGHT ONLINE** or **EMERGENCY LIGHTING**. Other machinery labels remain scenery.
 
 ### Greenway feels the repair
 
@@ -76,7 +76,7 @@ The water plant has recirculation tanks, sight glasses, pump skids, and spinning
 
 The underground camera uses a separate lighting layer with four non-shadow-casting lights. Surface daylight and the service lighting are never active together. Carried cargo is visible under either lighting set, and pausing holds an in-progress lift trip. The lift uses the same short fade and grounded/range/height guards as the city lifts.
 
-At a fixed spin rate, apparent gravity is proportional to radius. With inward height `h` measured from the living surface, the controller applies **`g(h) = 9.81 × (180 − h) / 180` m/s²**. The surface is **1.000 g**, the −8 m service floor **1.044 g**, the +42 m Skyroom **0.767 g**, and the +170 m axial floor **0.056 g**. Ordinary jump acceleration changes accordingly: the same launch is shorter below ground and higher upstairs. The HUD reports gravity at rest at the character’s feet, not the total force during motion. Magnetic boots and the trolley impose mechanical movement constraints. Coriolis forces and free-flight angular-momentum effects remain deferred.
+At a fixed spin rate, apparent gravity is proportional to radius. With cylinder radius `R = 360 m` and inward height `h` measured from the living surface, the controller applies **`g(h) = 9.81 × (360 − h) / 360` m/s²**. The living surface (`h = 0`) is **1.000 g**, the −8 m service floor is **368/360 g (`1.022 g`)**, the +9 m Skywalk is **351/360 g (`0.975 g`)**, the +42 m Skyroom is **318/360 g (`0.883 g`)**, and the +350 m axial floor is **10/360 g (`0.028 g`)**. Ordinary jump acceleration changes accordingly: the same launch is shorter below ground and higher upstairs. The HUD reports gravity at rest at the character’s feet, not the total force during motion. Magnetic boots and the trolley impose mechanical movement constraints. Coriolis forces and free-flight angular-momentum effects remain deferred.
 
 ## Mara and Skywalk ventilation
 
@@ -126,7 +126,8 @@ The production files are in `dist/`. Serve that folder with an ordinary static w
 
 ## Where to iterate
 
-- `src/habitat.js`: cylinder radius, length, spawn point, eye height, gravity.
+- `src/habitat.js`: cylinder radius (`360 m`), length (`1800 m`), spawn point, eye height, gravity, `VIEW_DISTANCE`, and district placements (`GREENWAY_PLACEMENT`, `MERIDIAN_PLACEMENT`).
+- `src/district-placement.js`: pure Y-axis placement helper translating authored local district coordinates to world space.
 - `src/cylinder-math.js`: allocation-free wrapped angles and explicit horizontal/height-aware physical distances.
 - `src/world.js`: background landscape, beacons, and district integration. Clears procedural scenery from both hand-built neighborhoods and combines solid collision footprints.
 - `src/village.js`: neighborhood buildings, market square, orchard, steps, overlook, and furniture.
@@ -148,8 +149,9 @@ The production files are in `dist/`. Serve that folder with an ordinary static w
 - `src/surface.js`: curved paving, surface-aligned boxes, instancing transforms, shared oriented panels, and fitted canvas-texture signs.
 - `src/district-layout.js` and `src/landmarks.js`: district bounds, discovery metadata, and the single combined catalog used by the world and save filtering.
 - `src/player.js`: cylindrical movement, radius-dependent gravity, camera/input, stepping, signed floor/wall/ceiling collision, and atomic pose/constraint changes. Secured and trolley modes retain collision-safe bounds without free flight. `groundHeight` selects the outermost support floor; `getState(target)` fills a reusable snapshot including local gravity and traversal mode.
-- `src/main.js`: lifecycle/input, change-driven HUD content, discovery/interactions, and active rendering with one-off paused/resize redraws.
+- `src/main.js`: lifecycle/input, `VIEW_DISTANCE` camera far plane, length-derived endcap HUD area bands, change-driven HUD content, discovery/interactions, and active rendering with one-off paused/resize redraws.
 - `src/style.css` and `index.html`: interface.
+- `tests/habitat.test.js`: expanded cylinder dimensions, surface `1.000 g`, district placement separation, and world bounds.
 - `tests/residents.test.js`: nonzero articulated gait through route wraps, raised-floor placement, viewpoint stops/resume, and live conversation anchors.
 - `tests/player.test.js`: deck fall capture, overhead clearance, constant physical collision size, underpass/step behavior, negative-floor support, radial jump differences, secured bounds, rail direction/input constraints, invalid transfers, and low-gravity fallback landing.
 - `tests/maintenance.test.js`, `tests/sunline.test.js`, and `tests/save-game.test.js`: maintenance transitions, physical range/floor/mode/airborne guards, angular wrapping, saved continuation, legacy migration, and corrupt/unavailable storage handling.
@@ -162,13 +164,13 @@ position = ((radius - h) * sin(theta), y, -(radius - h) * cos(theta))
 up       = (-sin(theta), 0, cos(theta))
 ```
 
-The habitat is deliberately compact: **360 m living-surface diameter × 900 m long**, so curvature is immediately visible. This is a game environment, not an accurate rotating-frame simulation: radius-dependent outward acceleration, mechanically secured axial travel, stationary scenery, approximate regional lighting, and cached static shadows. There are no Coriolis forces, free-flight angular-momentum effects, orbital mechanics, or crop-growth/economic simulation. Residents are non-solid figures on scripted routes; Mara and Nia have scripted conversations, not dialogue AI. Fans and pumps animate but do not simulate fluid flow or electricity. Glasshouse 01, the tower’s lobby/Skyroom, the service rooms, and the axial maintenance route are accessible; other buildings are exterior-only. Collision uses arc-coordinate prisms, not triangle-level physics. Foliage, beacon supports, and water remain non-solid; city trunks, major equipment, and public railings are solid. Keyboard/mouse only; no touch controls.
+The habitat measures **720 m living-surface diameter (`R = 360 m`) × 1800 m long** (doubled from the original 360 m diameter × 900 m length) so curvature remains clearly visible while giving the neighborhoods room to breathe. Doubling **both** linear dimensions (`2R` and `2L`) multiplies the living surface area (`2πRL`) by **4×** and the interior volume (`πR²L`) by **8×** (not 2× volume), while surface **1.000 g** (`9.81 m/s²`) is maintained by a slower implied spin rate (`ω = √(g / R)`). **Greenway Commons** (anchored at `y = −450 m`) and **Meridian Civic District** (anchored at `y = +450 m`) have **900 m anchor separation** along the cylinder axis while keeping an **unchanged human scale** for buildings, streets, rooms, doorways, props, actors, walking speeds, and eye height (`1.7 m`). This is a game environment, not an accurate rotating-frame simulation: radius-dependent outward acceleration, mechanically secured axial travel, stationary scenery, approximate regional lighting, and cached static shadows. There are no Coriolis forces, free-flight angular-momentum effects, orbital mechanics, or crop-growth/economic simulation. Residents are non-solid figures on scripted routes; Mara and Nia have scripted conversations, not dialogue AI. Fans and pumps animate but do not simulate fluid flow or electricity. Glasshouse 01, the tower’s lobby/Skyroom, the service rooms, and the axial maintenance route are accessible; other buildings are exterior-only. Collision uses arc-coordinate prisms, not triangle-level physics. Foliage, beacon supports, and water remain non-solid; city trunks, major equipment, and public railings are solid. Keyboard/mouse only; no touch controls.
 
 ## Verification
 
 | Check | Reproducible coverage |
 | --- | --- |
-| `npm test` | Controller support/ceilings/steps, radial gravity, secured/trolley controls, independent strafe, articulated gait, quest guards/transitions, height-aware navigation, save migration and storage errors |
+| `npm test` | Controller support/ceilings/steps, radial gravity, secured/trolley controls, independent strafe, articulated gait, quest guards/transitions, height-aware navigation, expanded cylinder/district placements, save migration and storage errors |
 | `npm run test:browser` | Stale-tab exit/reset, native audio with the optional gain-hold API removed, terminal audio failure without lost gameplay, intro/pause/resize/resume rendering, paused lift travel, authored transfers/controller support, real-page service-layer switching, regional WebGL lighting and sign bounds |
 | `npm run build` | Production bundling; this does not replace browser rendering checks |
 

@@ -1,5 +1,5 @@
 import * as THREE from "three";
-import { RADIUS, LENGTH } from "./habitat.js";
+import { RADIUS, LENGTH, GRAVITY, gravityAtHeight } from "./habitat.js";
 import { addCivicBlock, addCivicSolid } from "./civic-primitives.js";
 import { surfacePos, addOrientedPanel } from "./surface.js";
 import {
@@ -12,6 +12,10 @@ import {
   SUNLINE_MODULE_LENGTH,
   SERVICE_MODULE_INDEX,
   SERVICE_MODULE_Y,
+  SUNLINE_TRACK_MIN_Y,
+  SUNLINE_TRACK_MAX_Y,
+  SUNLINE_CORRIDOR_MIN_Y,
+  SUNLINE_CORRIDOR_MAX_Y,
   ENDCAP_HUBS,
 } from "./sunline-layout.js";
 import { createSunlineState } from "./sunline-state.js";
@@ -158,8 +162,8 @@ function createOrientedSign(parent, text, pos, facing, width = 3.6, height = 0.9
 /**
  * Constructs the entire axial Sunline system:
  * - Both endcap maintenance hubs (A & B) with foot-level collision envelopes
- * - Radial lift shafts connecting rim stations at h=0 to hub decks at h=170
- * - Full 820m glazed maintenance passage with dual rails and instanced frames/lamps
+ * - Radial lift shafts connecting rim stations at h=0 to axial hub decks
+ * - Full-length glazed maintenance passage with dual rails and instanced frames/lamps
  * - Constrained maintenance trolley with onboard spare emitter
  * - 9-section axial sunline array with isolated SL-02 core and side service panel
  *
@@ -219,9 +223,11 @@ export function createSunline(parent, initialPhase = "available") {
   const axialFloorBase = AXIAL_HEIGHT - axialFloorHeight;
   const axialRoofHeight = 0.5;
   const axialClearHeight = SPINE_ROOF_HEIGHT - AXIAL_HEIGHT;
+  const axialGravityLabel = `${(gravityAtHeight(AXIAL_HEIGHT) / GRAVITY).toFixed(3)} G`;
+  const rimGravityLabel = `${(gravityAtHeight(0) / GRAVITY).toFixed(1)} G`;
 
   // =========================================================================
-  // 2. ENDCAP HUBS A & B (y in [-430, -412] and [412, 430], floor h170, top 174.5)
+  // 2. ENDCAP HUBS A & B (18m hubs at [minY, maxY], floor AXIAL_HEIGHT, roof SPINE_ROOF_HEIGHT)
   // =========================================================================
   const hubsGroup = new THREE.Group();
   hubsGroup.name = "sunline_hubs";
@@ -233,16 +239,17 @@ export function createSunline(parent, initialPhase = "available") {
 
   for (const hubData of ENDCAP_HUBS) {
     const isA = hubData.side < 0;
-    const hubCenterY = hubData.side * 421;
-    const hubOuterWallY = isA ? -430.4 : 430.4;
-    const hubGateY = isA ? -412.4 : 412.4;
+    const hubCenterY = hubData.centerY;
+    const hubOuterWallY = hubData.outerWallY;
+    const hubGateY = hubData.gateY;
+    const hubLength = hubData.maxY - hubData.minY;
     const hubPrefix = isA ? "endcap_a" : "endcap_b";
 
     const hubSubGroup = new THREE.Group();
     hubSubGroup.name = `${hubPrefix}_hub`;
     hubsGroup.add(hubSubGroup);
 
-    // 2.1 Hub Floor: top EXACT AXIAL_HEIGHT (base 169.4, height 0.6), physical width 12m at r10 (arc 216m)
+    // 2.1 Hub Floor: top EXACT AXIAL_HEIGHT (height 0.6), physical width 12m at r10
     addCivicSolid(
       hubSubGroup,
       mats.floor,
@@ -250,12 +257,12 @@ export function createSunline(parent, initialPhase = "available") {
       SPINE_THETA * RADIUS,
       hubCenterY,
       axialArc(12),
-      18,
+      hubLength,
       axialFloorHeight,
       axialFloorBase,
     );
 
-    // 2.2 Hub Ceiling: underside EXACT SPINE_ROOF_HEIGHT (base 174.5, height 0.5)
+    // 2.2 Hub Ceiling: underside EXACT SPINE_ROOF_HEIGHT (height 0.5)
     addCivicSolid(
       hubSubGroup,
       mats.ceiling,
@@ -263,12 +270,12 @@ export function createSunline(parent, initialPhase = "available") {
       SPINE_THETA * RADIUS,
       hubCenterY,
       axialArc(12),
-      18,
+      hubLength,
       axialRoofHeight,
       SPINE_ROOF_HEIGHT,
     );
 
-    // 2.3 Outer Bulkhead Wall (y = +-430, blocks access to docking cylinders)
+    // 2.3 Outer Bulkhead Wall (blocks access to docking cylinders)
     addCivicSolid(
       hubSubGroup,
       mats.wall,
@@ -289,7 +296,7 @@ export function createSunline(parent, initialPhase = "available") {
       (SPINE_THETA - 0.64) * RADIUS,
       hubCenterY,
       axialArc(0.8),
-      18,
+      hubLength,
       axialClearHeight,
       AXIAL_HEIGHT,
     );
@@ -300,12 +307,12 @@ export function createSunline(parent, initialPhase = "available") {
       (SPINE_THETA + 0.64) * RADIUS,
       hubCenterY,
       axialArc(0.8),
-      18,
+      hubLength,
       axialClearHeight,
       AXIAL_HEIGHT,
     );
 
-    // 2.5 Boarding Bulkhead and Gate (y = +-412, prevents on-foot rail transit)
+    // 2.5 Boarding Bulkhead and Gate (prevents on-foot rail transit)
     addCivicSolid(
       hubSubGroup,
       mats.wall,
@@ -334,7 +341,7 @@ export function createSunline(parent, initialPhase = "available") {
     const gateSignPos = surfacePos(SPINE_THETA, hubGateY + (isA ? -0.52 : 0.52), AXIAL_HEIGHT + 3.2);
     createOrientedSign(
       hubSubGroup,
-      `${hubData.label.toUpperCase()} BOARDING PORTAL · 0.056 G\n[E] BOARD MAINTENANCE TROLLEY`,
+      `${hubData.label.toUpperCase()} BOARDING PORTAL · ${axialGravityLabel}\n[E] BOARD MAINTENANCE TROLLEY`,
       gateSignPos,
       isA ? "south" : "north",
       4.2,
@@ -342,7 +349,7 @@ export function createSunline(parent, initialPhase = "available") {
       "#242319",
     );
 
-    // Boarding Pad threshold indicator at dock (y = +-414, theta = SPINE_THETA)
+    // Boarding Pad threshold indicator at dock (theta = SPINE_THETA)
     addCivicBlock(
       hubSubGroup,
       mats.dockTeal,
@@ -354,7 +361,7 @@ export function createSunline(parent, initialPhase = "available") {
       AXIAL_HEIGHT + 0.01,
     );
 
-    // 2.6 Isolation Control Console (target at theta = SPINE_THETA + 0.3, y = +-422)
+    // 2.6 Isolation Control Console (target at hubData.control)
     // Physical console offset to theta = SPINE_THETA + 0.42 leaving trigger clear
     const consoleTheta = SPINE_THETA + 0.42;
     const consoleY = hubData.control.y;
@@ -397,8 +404,8 @@ export function createSunline(parent, initialPhase = "available") {
     if (isA) hubAIndicator = indicatorMesh;
     else hubBIndicator = indicatorMesh;
 
-    // 2.7 Power and Cooling Machinery Bank (theta = SPINE_THETA + 0.42, y = +-426)
-    const powerMachineryY = hubData.side * 426;
+    // 2.7 Power and Cooling Machinery Bank (theta = SPINE_THETA + 0.42, 5m outward from hubCenterY)
+    const powerMachineryY = hubCenterY + hubData.side * 5;
     addCivicSolid(
       hubSubGroup,
       mats.metalDark,
@@ -411,9 +418,9 @@ export function createSunline(parent, initialPhase = "available") {
       AXIAL_HEIGHT,
     );
 
-    // 2.8 Spare Emitter Storage Rack (theta = SPINE_THETA - 0.42, y = +-420)
+    // 2.8 Spare Emitter Storage Rack (theta = SPINE_THETA - 0.42, 1m inward from hubCenterY)
     const rackTheta = SPINE_THETA - 0.42;
-    const rackY = hubData.side * 420;
+    const rackY = hubCenterY - hubData.side * 1;
     addCivicSolid(
       hubSubGroup,
       mats.metalDark,
@@ -439,8 +446,8 @@ export function createSunline(parent, initialPhase = "available") {
     rackSpare2.position.copy(surfacePos(rackTheta + axialAngle(0.35), rackY, AXIAL_HEIGHT + 1.2));
     hubSubGroup.add(rackSpare2);
 
-    // 2.9 Radial Lift Landing (target at theta = SPINE_THETA - 0.25, y = +-424)
-    // Enclosure placed at theta = SPINE_THETA - 0.42, y = +-424 leaving trigger clear
+    // 2.9 Radial Lift Landing (target at hubData.landing)
+    // Enclosure placed at theta = SPINE_THETA - 0.42, y = hubData.landing.y leaving trigger clear
     const liftShaftTheta = SPINE_THETA - 0.42;
     const liftShaftY = hubData.landing.y;
     addCivicSolid(
@@ -473,7 +480,7 @@ export function createSunline(parent, initialPhase = "available") {
     );
     createOrientedSign(
       hubSubGroup,
-      `RADIAL LIFT TO LIVING SURFACE (RIM · 1.0 G)\n[E] RETURN TO ${hubData.label.toUpperCase()} RIM`,
+      `RADIAL LIFT TO LIVING SURFACE (RIM · ${rimGravityLabel})\n[E] RETURN TO ${hubData.label.toUpperCase()} RIM`,
       landingSignPos,
       "east",
       1.5,
@@ -484,12 +491,12 @@ export function createSunline(parent, initialPhase = "available") {
     // Magnetic Boots Safety Notice mounted on wall
     const noticePos = surfacePos(
       SPINE_THETA - 0.59,
-      hubData.side * 426,
+      powerMachineryY,
       AXIAL_HEIGHT + 2.4,
     );
     createOrientedSign(
       hubSubGroup,
-      "AT-REST GRAVITY: 0.056 G\nMAGNETIC BOOTS MUST BE SECURED",
+      `AT-REST GRAVITY: ${axialGravityLabel}\nMAGNETIC BOOTS MUST BE SECURED`,
       noticePos,
       "east",
       3.2,
@@ -497,8 +504,8 @@ export function createSunline(parent, initialPhase = "available") {
       "#382012",
     );
 
-    // 2.10 Hub-to-dock visual collar (|y| in [430, 436], connects hub to docking cylinders)
-    const collarCenterY = isA ? -433 : 433;
+    // 2.10 Hub-to-dock visual collar (6m span outward from hub to endcap docking airlock)
+    const collarCenterY = hubCenterY + hubData.side * 12;
     const collarGeo = new THREE.CylinderGeometry(10.0, 10.0, 6.0, 24, 1, true);
     const collarMesh = new THREE.Mesh(collarGeo, mats.metalDark);
     collarMesh.castShadow = false;
@@ -508,7 +515,7 @@ export function createSunline(parent, initialPhase = "available") {
   }
 
   // =========================================================================
-  // 3. RIM LIFT STATIONS & RADIAL SHAFTS (h = 0 to h = 169.4, footprint <= 2m)
+  // 3. RIM LIFT STATIONS & RADIAL SHAFTS (h = 0 to axialFloorBase, footprint <= 2m)
   // =========================================================================
   const rimGroup = new THREE.Group();
   rimGroup.name = "sunline_rim_stations";
@@ -550,7 +557,7 @@ export function createSunline(parent, initialPhase = "available") {
     const rimSignPos = surfacePos(rimTheta, columnBaseY + (isA ? 0.85 : -0.85), 2.2);
     createOrientedSign(
       rimGroup,
-      `RADIAL LIFT TO AXIAL SERVICE SPINE (0.056 G)\n[E] TAKE LIFT TO ${hubData.label.toUpperCase()} HUB`,
+      `RADIAL LIFT TO AXIAL SERVICE SPINE (${axialGravityLabel})\n[E] TAKE LIFT TO ${hubData.label.toUpperCase()} HUB`,
       rimSignPos,
       isA ? "north" : "south",
       2.8,
@@ -558,7 +565,7 @@ export function createSunline(parent, initialPhase = "available") {
       "#152b2b",
     );
 
-    // 3.2 Continuous radial lift shaft connecting h=0 to h=169.4
+    // 3.2 Continuous radial lift shaft connecting h=0 to axialFloorBase
     // Rises radially along ray at theta = rimTheta, y = columnBaseY
     const shaftP0 = surfacePos(rimTheta, columnBaseY, 0);
     const shaftP1 = surfacePos(rimTheta, columnBaseY, axialFloorBase);
@@ -583,34 +590,35 @@ export function createSunline(parent, initialPhase = "available") {
   }
 
   // =========================================================================
-  // 4. GLAZED CORRIDOR & RAIL PASSAGE (Y in [-412, 412], rails in [-410, 410])
+  // 4. GLAZED CORRIDOR & RAIL PASSAGE ([SUNLINE_CORRIDOR_MIN_Y, SUNLINE_CORRIDOR_MAX_Y], rails [SUNLINE_TRACK_MIN_Y, SUNLINE_TRACK_MAX_Y])
   // =========================================================================
   const corridorGroup = new THREE.Group();
   corridorGroup.name = "sunline_corridor";
   sunlineGroup.add(corridorGroup);
 
-  const corridorLen = 824; // [-412, 412]
+  const corridorLen = SUNLINE_CORRIDOR_MAX_Y - SUNLINE_CORRIDOR_MIN_Y;
+  const corridorCenterY = (SUNLINE_CORRIDOR_MIN_Y + SUNLINE_CORRIDOR_MAX_Y) / 2;
 
-  // 4.1 Floor: physical width 4.2m at r10 (arc 75.6m), floor top EXACT AXIAL_HEIGHT (base 169.4, height 0.6)
+  // 4.1 Floor: physical width 4.2m at r10, floor top EXACT AXIAL_HEIGHT (height 0.6)
   addCivicSolid(
     corridorGroup,
     mats.floor,
     obstacles,
     SPINE_THETA * RADIUS,
-    0,
+    corridorCenterY,
     axialArc(4.2),
     corridorLen,
     axialFloorHeight,
     axialFloorBase,
   );
 
-  // 4.2 Roof: covering roof at underside SPINE_ROOF_HEIGHT (base 174.5, height 0.5)
+  // 4.2 Roof: covering roof at underside SPINE_ROOF_HEIGHT (height 0.5)
   addCivicSolid(
     corridorGroup,
     mats.ceiling,
     obstacles,
     SPINE_THETA * RADIUS,
-    0,
+    corridorCenterY,
     axialArc(4.2),
     corridorLen,
     axialRoofHeight,
@@ -622,7 +630,7 @@ export function createSunline(parent, initialPhase = "available") {
     corridorGroup,
     mats.glass,
     (SPINE_THETA - 0.21) * RADIUS,
-    0,
+    corridorCenterY,
     axialArc(0.08),
     corridorLen,
     4.3,
@@ -632,7 +640,7 @@ export function createSunline(parent, initialPhase = "available") {
     corridorGroup,
     mats.glass,
     (SPINE_THETA + 0.21) * RADIUS,
-    0,
+    corridorCenterY,
     axialArc(0.08),
     corridorLen,
     4.3,
@@ -641,7 +649,7 @@ export function createSunline(parent, initialPhase = "available") {
   obstacles.push(
     {
       theta: SPINE_THETA - 0.24,
-      y: 0,
+      y: corridorCenterY,
       width: axialArc(0.4),
       depth: corridorLen,
       base: AXIAL_HEIGHT,
@@ -649,7 +657,7 @@ export function createSunline(parent, initialPhase = "available") {
     },
     {
       theta: SPINE_THETA + 0.24,
-      y: 0,
+      y: corridorCenterY,
       width: axialArc(0.4),
       depth: corridorLen,
       base: AXIAL_HEIGHT,
@@ -657,13 +665,14 @@ export function createSunline(parent, initialPhase = "available") {
     },
   );
 
-  // 4.4 Twin Guide Rails along Y in [-410, 410]
-  const railLen = 820;
+  // 4.4 Twin Guide Rails along [SUNLINE_TRACK_MIN_Y, SUNLINE_TRACK_MAX_Y]
+  const railLen = SUNLINE_TRACK_MAX_Y - SUNLINE_TRACK_MIN_Y;
+  const railCenterY = (SUNLINE_TRACK_MIN_Y + SUNLINE_TRACK_MAX_Y) / 2;
   addCivicBlock(
     corridorGroup,
     mats.metalBright,
     (SPINE_THETA - axialAngle(0.6)) * RADIUS,
-    0,
+    railCenterY,
     axialArc(0.12),
     railLen,
     0.15,
@@ -673,7 +682,7 @@ export function createSunline(parent, initialPhase = "available") {
     corridorGroup,
     mats.metalBright,
     (SPINE_THETA + axialAngle(0.6)) * RADIUS,
-    0,
+    railCenterY,
     axialArc(0.12),
     railLen,
     0.15,
@@ -683,7 +692,7 @@ export function createSunline(parent, initialPhase = "available") {
     corridorGroup,
     mats.metalDark,
     SPINE_THETA * RADIUS,
-    0,
+    railCenterY,
     axialArc(0.2),
     railLen,
     0.08,
@@ -691,7 +700,7 @@ export function createSunline(parent, initialPhase = "available") {
   );
 
   // 4.5 Batched Repeated Geometry: Structural Arch Ribs & Ceiling Lamps (every 10m)
-  const ribCount = Math.floor(railLen / 10) + 1; // 83 ribs
+  const ribCount = Math.floor(railLen / 10) + 1;
   const ribBoxGeo = new THREE.BoxGeometry(0.16, 0.35, 4.4);
   const leftRibInst = new THREE.InstancedMesh(ribBoxGeo, mats.metalDark, ribCount);
   const rightRibInst = new THREE.InstancedMesh(ribBoxGeo, mats.metalDark, ribCount);
@@ -704,7 +713,7 @@ export function createSunline(parent, initialPhase = "available") {
 
   const dummy = new THREE.Object3D();
   for (let k = 0; k < ribCount; k++) {
-    const yStation = -410 + k * 10;
+    const yStation = SUNLINE_TRACK_MIN_Y + k * 10;
 
     // Left rib vertical post
     dummy.position.copy(surfacePos(SPINE_THETA - 0.205, yStation, AXIAL_HEIGHT + 2.2));
@@ -727,24 +736,30 @@ export function createSunline(parent, initialPhase = "available") {
   leftRibInst.instanceMatrix.needsUpdate = true;
   rightRibInst.instanceMatrix.needsUpdate = true;
   lampInst.instanceMatrix.needsUpdate = true;
+  leftRibInst.computeBoundingBox();
+  leftRibInst.computeBoundingSphere();
+  rightRibInst.computeBoundingBox();
+  rightRibInst.computeBoundingSphere();
+  lampInst.computeBoundingBox();
+  lampInst.computeBoundingSphere();
   corridorGroup.add(leftRibInst);
   corridorGroup.add(rightRibInst);
   corridorGroup.add(lampInst);
 
   // =========================================================================
-  // 5. MAINTENANCE TROLLEY (Physical body <=2.6m at floor, <=2m at h172, eye clear >0.3m)
+  // 5. MAINTENANCE TROLLEY (Physical body <=2.6m at floor, <=2m at AXIAL_HEIGHT + 2, eye clear >0.3m)
   // =========================================================================
   const trolleyGroup = new THREE.Group();
   trolleyGroup.name = "sunline_trolley";
   // At SPINE_THETA: x = 0, z = RADIUS - AXIAL_HEIGHT = 10
-  trolleyGroup.position.copy(surfacePos(SPINE_THETA, -410, AXIAL_HEIGHT));
+  trolleyGroup.position.copy(surfacePos(SPINE_THETA, SUNLINE_TRACK_MIN_Y, AXIAL_HEIGHT));
   sunlineGroup.add(trolleyGroup);
 
   // 5.1 Floor Chassis: width 2.2m (<=2.6m), length 3.2m, thickness 0.1m
   const chassisGeo = new THREE.BoxGeometry(2.2, 3.2, 0.1);
   const chassisMesh = new THREE.Mesh(chassisGeo, mats.metalDark);
   chassisMesh.castShadow = false;
-  chassisMesh.position.set(0, 0, 0); // local z=0 corresponds to world h=170
+  chassisMesh.position.set(0, 0, 0); // local z=0 corresponds to world h=AXIAL_HEIGHT
   trolleyGroup.add(chassisMesh);
 
   // Non-slip tread plate
@@ -832,7 +847,7 @@ export function createSunline(parent, initialPhase = "available") {
   trolleyGroup.add(rearBumper);
 
   // =========================================================================
-  // 6. 9-SECTION SUNLINE CORE ARRAY (cover LENGTH - 8 = 892m along cylinder axis)
+  // 6. 9-SECTION SUNLINE CORE ARRAY (cover LENGTH - 8 along cylinder axis)
   // =========================================================================
   const sunlineCoreArray = new THREE.Group();
   sunlineCoreArray.name = "sunline_core_array";
@@ -915,7 +930,7 @@ export function createSunline(parent, initialPhase = "available") {
   panelGroup.name = "sunline_panel_sl02";
   sunlineGroup.add(panelGroup);
 
-  // Positioned along the side of the rail corridor (x = 1.8, h = 171.4, eye clearance > 0.3m)
+  // Positioned along the side of the rail corridor (x = 1.8, h = AXIAL_HEIGHT + 1.4, eye clearance > 0.3m)
   const panelHousingGeo = new THREE.BoxGeometry(0.3, 1.4, 1.2);
   const panelHousing = new THREE.Mesh(panelHousingGeo, mats.metalDark);
   panelHousing.castShadow = false;

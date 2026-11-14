@@ -1,6 +1,6 @@
 import * as THREE from "three";
 import "./style.css";
-import { RADIUS, LENGTH, GRAVITY } from "./habitat.js";
+import { RADIUS, LENGTH, GRAVITY, VIEW_DISTANCE } from "./habitat.js";
 import { createWorld } from "./world.js";
 import { createPlayer } from "./player.js";
 import { DISTRICT_NAME, inDistrict } from "./district-layout.js";
@@ -19,6 +19,7 @@ import {
   spatialDistance,
 } from "./cylinder-math.js";
 const $ = (id) => document.getElementById(id);
+const ENDCAP_AREA_Y = LENGTH / 2 - 50;
 const startButton = $("start");
 startButton.disabled = true;
 
@@ -114,7 +115,7 @@ try {
     75,
     window.innerWidth / window.innerHeight,
     0.08,
-    1800,
+    VIEW_DISTANCE,
   );
   scene.add(camera);
   const saveStore = createSaveStore();
@@ -451,9 +452,9 @@ try {
             ? CITY_NAME.toUpperCase()
             : inDistrict(arc, state.y)
               ? DISTRICT_NAME.toUpperCase()
-              : state.height < 2 && state.y < -400
+              : state.height < 2 && state.y < -ENDCAP_AREA_Y
                 ? "ENDCAP A · RIM ACCESS"
-                : state.height < 2 && state.y > 400
+                : state.height < 2 && state.y > ENDCAP_AREA_Y
                   ? "ENDCAP B · RIM ACCESS"
                   : "OUTER PROMENADE";
     setText(ui.area, areaText);

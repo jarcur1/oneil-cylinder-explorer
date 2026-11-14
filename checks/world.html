@@ -21,24 +21,44 @@
     <div id="viewport"></div>
     <script type="module">
       import * as THREE from "three";
-      import { RADIUS, SPAWN } from "../src/habitat.js";
+      import {
+        RADIUS,
+        LENGTH,
+        SPAWN,
+        VIEW_DISTANCE,
+        GREENWAY_PLACEMENT,
+        MERIDIAN_PLACEMENT,
+      } from "../src/habitat.js";
       import { surfacePos, surfaceUp } from "../src/surface.js";
+      import { wrappedDeltaTheta } from "../src/cylinder-math.js";
       import { createWorld } from "../src/world.js";
       import { createPlayer } from "../src/player.js";
       import { getCityLift } from "../src/city-transit.js";
       import { getSunlineTransfer } from "../src/sunline-transit.js";
+      import { DISTRICT_BOUNDS, DISTRICT_STOPS } from "../src/district-layout.js";
+      import { DELIVERY_STATIONS } from "../src/delivery-layout.js";
       import {
         MAIN_LIFT,
         SKYWALK_LIFT,
         SKYWALK_HEIGHT,
         TOWER,
         CITY_ARRIVAL,
+        CITY_BOUNDS,
+        CITY_STOPS,
       } from "../src/city-layout.js";
-      import { SERVICE_ACCESS, SERVICE_FLOOR } from "../src/service-layout.js";
+      import {
+        SERVICE_ACCESS,
+        SERVICE_FLOOR,
+        SERVICE_BOUNDS,
+        SERVICE_STOPS,
+      } from "../src/service-layout.js";
+      import { CARETAKER, VENTILATION_UNIT } from "../src/maintenance-layout.js";
       import {
         ENDCAP_HUBS,
         SUNLINE_PANEL,
         AXIAL_HEIGHT,
+        SUNLINE_TRACK_MIN_Y,
+        SUNLINE_TRACK_MAX_Y,
       } from "../src/sunline-layout.js";
 
       const renderer = new THREE.WebGLRenderer({ antialias: true });
@@ -58,7 +78,7 @@
         75,
         (window.innerWidth || 800) / (window.innerHeight || 600),
         0.08,
-        1800,
+        VIEW_DISTANCE,
       );
       scene.add(camera);
 
@@ -72,6 +92,8 @@
         groundHeight: world.groundHeight,
       });
       player.setEnabled(true);
+      world.sunline.setActive(true);
+      world.delivery.setActive(true);
 
       const state = {};
       let elapsed = 0;
@@ -220,6 +242,262 @@
         };
       }
 
+      function inspectTargetAlignment({
+        s,
+        y,
+        base = 0,
+        height,
+        meshHeight = height,
+        width = null,
+        depth = null,
+        rootName = null,
+      }) {
+        scene.updateMatrixWorld(true);
+        const expected = surfacePos(s / RADIUS, y, base + meshHeight / 2);
+        const root = rootName ? scene.getObjectByName(rootName) : scene;
+        const box = new THREE.Box3();
+        const center = new THREE.Vector3();
+        let bestMesh = null;
+        let bestDist = Infinity;
+        let bestBox = null;
+
+        if (root) {
+          root.traverse((obj) => {
+            if (!obj.isMesh || obj.isInstancedMesh) return;
+            box.setFromObject(obj);
+            if (box.isEmpty()) return;
+            box.getCenter(center);
+            const dist = center.distanceTo(expected);
+            if (dist < bestDist) {
+              bestDist = dist;
+              bestMesh = obj;
+              bestBox = {
+                minY: box.min.y,
+                maxY: box.max.y,
+                centerY: center.y,
+              };
+            }
+          });
+        }
+
+        let bestObs = null;
+        let bestObsScore = Infinity;
+        const minH = base;
+        const maxH = base + height;
+        for (const obs of world.obstacles) {
+          if (obs.depth === LENGTH && obs.width > RADIUS * 4) continue;
+          const obsS = wrappedDeltaTheta(obs.theta, 0) * RADIUS;
+          const obsBase = obs.base ?? 0;
+          const obsTop = obsBase + obs.height;
+          if (obsTop < minH - 0.5 || obsBase > maxH + 0.5) continue;
+          if (width !== null && Math.abs(obs.width - width) > 0.6) continue;
+          if (depth !== null && Math.abs(obs.depth - depth) > 0.6) continue;
+          const score =
+            Math.hypot(obsS - s, obs.y - y) +
+            Math.abs(obsBase - base) * 0.25 +
+            Math.abs(obs.height - height) * 0.25;
+          if (score < bestObsScore) {
+            bestObsScore = score;
+            bestObs = {
+              s: obsS,
+              y: obs.y,
+              base: obsBase,
+              height: obs.height,
+              width: obs.width,
+              depth: obs.depth,
+              dist: Math.hypot(obsS - s, obs.y - y),
+            };
+          }
+        }
+
+        return {
+          meshFound: Boolean(bestMesh),
+          meshDistToExpected: bestDist,
+          meshBox: bestBox,
+          colliderFound: Boolean(bestObs),
+          collider: bestObs,
+        };
+      }
+
+      function inspectResidentAnchors() {
+        scene.updateMatrixWorld(true);
+        const wp = new THREE.Vector3();
+        return world.residents.residents.map((res) => {
+          res.root.getWorldPosition(wp);
+          const expected = surfacePos(
+            res.sampleState.s / RADIUS,
+            res.sampleState.y,
+            res.height,
+          );
+          return {
+            id: res.cfg.id,
+            name: res.cfg.name || null,
+            district: res.district || res.cfg.district || null,
+            isStatic: Boolean(res.isStatic),
+            height: res.height,
+            sampleS: res.sampleState.s,
+            sampleY: res.sampleState.y,
+            worldPos: { x: wp.x, y: wp.y, z: wp.z },
+            expectedPos: { x: expected.x, y: expected.y, z: expected.z },
+            worldDist: wp.distanceTo(expected),
+          };
+        });
+      }
+
+      function inspectSceneStructure() {
+        scene.updateMatrixWorld(true);
+        const groupY = (name) => {
+          const obj = scene.getObjectByName(name);
+          return obj ? obj.position.y : null;
+        };
+        const globalDeck = world.obstacles.find(
+          (obs) => obs.depth === LENGTH && obs.width > RADIUS * 4,
+        );
+        return {
+          cameraFar: camera.far,
+          oneilWorldY: groupY("oneil_world"),
+          inhabitedDistrictsY: groupY("inhabited_districts"),
+          greenwayDistrictY: groupY("greenway_district"),
+          meridianDistrictY: groupY("meridian_district"),
+          residentsY: groupY("residents"),
+          globalDeck: globalDeck
+            ? {
+                y: globalDeck.y,
+                depth: globalDeck.depth,
+                base: globalDeck.base,
+                height: globalDeck.height,
+              }
+            : null,
+        };
+      }
+
+      function inspectSunlineTrolley() {
+        scene.updateMatrixWorld(true);
+        const trolley = scene.getObjectByName("sunline_trolley");
+        if (!trolley) return { found: false };
+        const wp = new THREE.Vector3();
+        trolley.getWorldPosition(wp);
+        const spare = trolley.getObjectByName("trolley_spare_emitter");
+        return {
+          found: true,
+          visible: Boolean(trolley.visible),
+          worldPos: { x: wp.x, y: wp.y, z: wp.z },
+          rotationZ: trolley.rotation.z,
+          spareEmitterVisible: spare ? Boolean(spare.visible) : null,
+        };
+      }
+
+      function inspectSunlineCorridorInstances() {
+        scene.updateMatrixWorld(true);
+        const corridor = scene.getObjectByName("sunline_corridor");
+        if (!corridor) return [];
+        const instances = [];
+        corridor.traverse((obj) => {
+          if (!obj.isInstancedMesh) return;
+          const bb = obj.boundingBox;
+          const bs = obj.boundingSphere;
+          const worldBox = bb
+            ? bb.clone().applyMatrix4(obj.matrixWorld)
+            : null;
+          instances.push({
+            count: obj.count,
+            hasBoundingBox: Boolean(bb && !bb.isEmpty()),
+            hasBoundingSphere: Boolean(
+              bs && Number.isFinite(bs.radius) && bs.radius > 0,
+            ),
+            minY: worldBox ? worldBox.min.y : null,
+            maxY: worldBox ? worldBox.max.y : null,
+            sphereRadius: bs ? bs.radius : null,
+          });
+        });
+        return instances;
+      }
+
+      function inspectCarriedCargo() {
+        scene.updateMatrixWorld(true);
+        const crate = scene.getObjectByName("carried_seed_crate");
+        if (!crate) return { found: false };
+        const wp = new THREE.Vector3();
+        crate.getWorldPosition(wp);
+        return {
+          found: true,
+          visible: Boolean(crate.visible),
+          worldPos: { x: wp.x, y: wp.y, z: wp.z },
+        };
+      }
+
+      const _camDir = new THREE.Vector3();
+      const wrapAngleDiff = (a, b) =>
+        Math.atan2(Math.sin(a - b), Math.cos(a - b));
+
+      function holdKeyUntil(code, dt, maxSteps, done) {
+        window.dispatchEvent(new KeyboardEvent("keydown", { code }));
+        try {
+          for (let i = 0; i < maxSteps; i++) {
+            step(dt);
+            if (done(state)) break;
+          }
+        } finally {
+          window.dispatchEvent(new KeyboardEvent("keyup", { code }));
+        }
+        return { ...state, elapsed };
+      }
+
+      function walkSecuredTo(targetTheta, targetY) {
+        player.getState(state);
+        if (state.traversalMode !== "secured" || !state.grounded) {
+          throw new Error(
+            `walkSecuredTo requires grounded secured mode, got mode=${state.traversalMode} grounded=${state.grounded}`,
+          );
+        }
+        camera.getWorldDirection(_camDir);
+        if (Math.abs(_camDir.y) < 0.9) {
+          throw new Error(
+            `walkSecuredTo expects axis-aligned yaw, got dir.y=${_camDir.y}`,
+          );
+        }
+        const facingNorth = _camDir.y > 0;
+        const posYKey = facingNorth ? "KeyW" : "KeyS";
+        const negYKey = facingNorth ? "KeyS" : "KeyW";
+        const posThetaKey = facingNorth ? "KeyD" : "KeyA";
+        const negThetaKey = facingNorth ? "KeyA" : "KeyD";
+
+        const dt = 0.05;
+        const securedSpeed = ENDCAP_HUBS[0].constraint.speed;
+        const axialRadius = Math.max(1, RADIUS - state.height);
+        const tol = 0.12;
+
+        const dTheta = wrapAngleDiff(targetTheta, state.theta);
+        if (Math.abs(dTheta) * axialRadius > tol) {
+          const arcDist = Math.abs(dTheta) * axialRadius;
+          const maxSteps = Math.ceil(arcDist / (securedSpeed * dt)) + 10;
+          const key = dTheta > 0 ? posThetaKey : negThetaKey;
+          holdKeyUntil(key, dt, maxSteps, (cur) => {
+            const rem = wrapAngleDiff(targetTheta, cur.theta) * axialRadius;
+            return dTheta > 0 ? rem <= tol : rem >= -tol;
+          });
+        }
+
+        const dy = targetY - state.y;
+        if (Math.abs(dy) > tol) {
+          const maxSteps = Math.ceil(Math.abs(dy) / (securedSpeed * dt)) + 10;
+          const key = dy > 0 ? posYKey : negYKey;
+          holdKeyUntil(key, dt, maxSteps, (cur) =>
+            dy > 0 ? cur.y >= targetY - tol : cur.y <= targetY + tol,
+          );
+        }
+
+        const remainingArc =
+          Math.abs(wrapAngleDiff(targetTheta, state.theta)) * axialRadius;
+        const remainingY = Math.abs(targetY - state.y);
+        if (remainingArc > 0.35 || remainingY > 0.35) {
+          throw new Error(
+            `walkSecuredTo failed to reach target (remArc=${remainingArc.toFixed(3)}, remY=${remainingY.toFixed(3)})`,
+          );
+        }
+        return { ...state, elapsed };
+      }
+
       player.update(0);
       world.update(0, 0, player.getState(state));
       renderer.render(scene, camera);
@@ -237,9 +515,25 @@
         sampleLuminanceAt,
         getLightInventory,
         inspectSignAt,
+        inspectTargetAlignment,
+        inspectResidentAnchors,
+        inspectSceneStructure,
+        inspectSunlineTrolley,
+        inspectSunlineCorridorInstances,
+        inspectCarriedCargo,
+        walkSecuredTo,
         layouts: {
           RADIUS,
+          LENGTH,
+          VIEW_DISTANCE,
           SPAWN,
+          GREENWAY_PLACEMENT,
+          MERIDIAN_PLACEMENT,
+          DISTRICT_BOUNDS,
+          DISTRICT_STOPS,
+          DELIVERY_STATIONS,
+          CITY_BOUNDS,
+          CITY_STOPS,
           TOWER,
           MAIN_LIFT,
           SKYWALK_LIFT,
@@ -247,9 +541,15 @@
           CITY_ARRIVAL,
           SERVICE_ACCESS,
           SERVICE_FLOOR,
+          SERVICE_BOUNDS,
+          SERVICE_STOPS,
+          CARETAKER,
+          VENTILATION_UNIT,
           ENDCAP_HUBS,
           SUNLINE_PANEL,
           AXIAL_HEIGHT,
+          SUNLINE_TRACK_MIN_Y,
+          SUNLINE_TRACK_MAX_Y,
         },
         dispose() {
           player.dispose();

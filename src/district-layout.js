@@ -1,11 +1,11 @@
-import { RADIUS } from "./habitat.js";
+import { RADIUS, GREENWAY_PLACEMENT } from "./habitat.js";
 
 export const DISTRICT_NAME = "Greenway Commons";
 export const DISTRICT_BOUNDS = Object.freeze({
   minS: -90,
   maxS: 145,
-  minY: -292,
-  maxY: -110,
+  minY: GREENWAY_PLACEMENT.toWorldY(-292),
+  maxY: GREENWAY_PLACEMENT.toWorldY(-110),
 });
 
 // Hand-built geometry owns this rectangle; background scenery stays outside it.
@@ -24,7 +24,7 @@ export const DISTRICT_STOPS = [
     id: "greenway-market",
     name: "Market square",
     theta: 0,
-    y: -230,
+    y: GREENWAY_PLACEMENT.toWorldY(-230),
     color: 0xd5f58e,
     radius: 11,
     minHeight: 0,
@@ -34,7 +34,7 @@ export const DISTRICT_STOPS = [
     id: "greenway-glasshouse",
     name: "Glasshouse 01",
     theta: 64 / RADIUS,
-    y: -214,
+    y: GREENWAY_PLACEMENT.toWorldY(-214),
     color: 0x79ddd2,
     radius: 6,
     minHeight: 0,
@@ -44,7 +44,7 @@ export const DISTRICT_STOPS = [
     id: "greenway-overlook",
     name: "Orchard overlook",
     theta: -58 / RADIUS,
-    y: -145,
+    y: GREENWAY_PLACEMENT.toWorldY(-145),
     color: 0xffc477,
     radius: 5,
     minHeight: 2,
