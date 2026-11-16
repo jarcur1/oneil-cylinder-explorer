@@ -37,7 +37,7 @@ Open the local URL printed by Vite (normally http://127.0.0.1:5173). Do not open
 
 Choose **Enter Endcap A** for the new maintenance route, **Or visit Meridian** for the city entrance, or **Or start in Greenway Commons** for the original landing. In Greenway, follow the promenade into **Market square**, take the east lane to **Glasshouse 01**, and follow the ORCHARD sign west to the stepped **Orchard overlook**. The Habitat Walk records **11 stops**: six neighborhood landmarks, two utility rooms, both endcap hubs, and the sunline service station. Discoveries require the correct floor and physical proximity.
 
-The pause menu offers Endcap A and both neighborhood teleport entrances without erasing discoveries or a carried seed crate (and cleanly cancels any pending lift or tram transfer). Switching away pauses gameplay, residents, world animation, and sound. Local at-rest gravity is shown in the HUD; negative height is labeled **DOWN** relative to the living surface.
+The pause menu offers Endcap A and both neighborhood teleport entrances without erasing discoveries or carried cargo (and cleanly cancels any pending lift or tram transfer). Switching away pauses gameplay, residents, world animation, and sound. Local at-rest gravity is shown in the HUD; negative height is labeled **DOWN** relative to the living surface.
 
 The HUD starts compact. Collapsed panels retain the discovery count/nearest landmark and the tracked job (or current delivery), while waypoints, interaction prompts, cargo, and physics remain visible. H/J and the native toggle buttons expand details; their state survives pause/map use but is not saved. Wheel/Page Up/Page Down opens Jobs before scrolling. Expanded discovery details remain available on compact screens.
 
@@ -53,12 +53,12 @@ The map separates the cylinder into **three elevation layers**:
 
 The unrolled projection wraps circumference `theta` across `[−π/2, 3π/2]` with north / Endcap B at the top so neither the `θ = 0` neighborhoods nor the `θ = π` axial spine touches the seam. It displays district bounds, your current player position, visited vs. unvisited landmark status, vertical lift and axial trolley links, and keyboard-accessible destination/job lists alongside the SVG map so small or overlapping pins stay usable on desktop and compact **375 × 600** screens without horizontal overflow.
 
-Select any destination (all 11 landmarks plus lift, rim, dock, and tram ground access points), track one of the three active jobs (**Seed Delivery**, **Civic Maintenance**, or **Sunline Engineering**), or clear tracking at any time. Waypoints use **authored access guidance rather than a generic GPS pathfinder**:
+Select any destination (all 11 landmarks plus lift, rim, dock, and tram ground access points), track one of the three active jobs (**Delivery**, **Civic Maintenance**, or **Sunline Engineering**), or clear tracking at any time. Waypoints use **authored access guidance rather than a generic GPS pathfinder**:
 
 - Targets on your current layer point directly to the destination; destination hints describe doorways, lanes, and stairs.
 - Cross-floor targets direct you to the appropriate transfer first: the **Service Access** lift for `−8 m`, the **Civic tower lobby** or **Skywalk** street lift for `+42 m` or `+9 m`, an **Endcap rim** lift to reach `+350 m`, a **trolley dock** when heading from an axial hub toward SL-02, or a hub **return lift** when descending from the axis.
 - Select a tram station to find its ground boarding pad. While aboard, tracking a destination or job guides you to the appropriate disembark stop before the walking or lift leg.
-- Tracking a job automatically follows its current phase and target, and clears once the job is complete.
+- Tracking a job follows its current phase and target. Delivery continues from seeds to produce under the same selection, then clears after the final dropoff.
 
 During active play, a lightweight on-screen (or viewport-edge-clamped when off-screen or behind you) waypoint indicator shows the guided target or access point name, wrapped 3D distance, and elevation cue without blocking core controls or viewport clicks. Active waypoint selection is **ephemeral runtime state**: it is not saved to `localStorage` and requires no save migration.
 
@@ -70,7 +70,7 @@ Each stop pairs a ground boarding pad with an elevated platform and mast. Approa
 
 Ground pads carry a high-contrast **TRAM / E** stencil. Station boards show the next visit's actual arrival countdown and terminal destination, including a returning tram in the opposite direction. Docked boards show departure time and change to **DOORS CLOSING** below the new-boarding window. The carriage shows its terminal plus the next stop; E inspection reads the same live timetable. Countdown signs freeze with the simulation rather than using wall-clock timers.
 
-Carried seed crates stay visible aboard. The tram car does not allow surface job interactions or award landmark discoveries; disembark to explore or deliver cargo. Opening the **G** map freezes the tram and shows its live marker and status. All existing **intro/pause teleport buttons** and **city, −8 m service, and endcap radial lifts** remain available.
+Carried seed and produce crates stay visible aboard. The tram car does not allow surface job interactions or award landmark discoveries; disembark to explore or deliver cargo. Opening the **G** map freezes the tram and shows its live marker and status. All existing **intro/pause teleport buttons** and **city, −8 m service, and endcap radial lifts** remain available.
 
 ## Endcaps and sunline maintenance
 
@@ -126,13 +126,17 @@ Inspecting the unit before accepting does not repair it. Interactions require a 
 
 Find the amber-marked collection table just east of the square’s south approach. Walk close and press **E** to collect the heritage seed crate. You will see it in your hands and in the inventory indicator. Follow the east lane into **Glasshouse 01**; the receiving desk is on the right, between the planter beds. Approach it and press **E** again to deliver.
 
-The Neighborhood Job card shows the seed destination, distance, and progress. Delivery requires being grounded within 3.2 m, with feet no more than half a metre above the living surface. Completion is one-time per saved game. The 11-stop Habitat Walk stays active alongside all three jobs. Narrow windows stack the cards; wheel and Page Up/Page Down scroll them even with the mouse captured.
+Delivery requires walking, grounded within 3.2 m, with feet no more than half a metre above the living surface. The seed dropoff unlocks **Farm to city** in the same job card; it does not collect produce automatically. Press **E again** at the farm desk to collect a fresh produce crate.
+
+Leave through the glasshouse **south door** and use the **south cross-lane** west to the promenade; its west wall is not an entrance. Board at **Glasshouse 01** and ride to **Meridian Plaza**. From the plaza's ground pad, walk north just short of the next gantry, east along the clear cross-lane, then north to the signed produce receiving table. Press E there to deliver. Walking the entire route is also valid; no tram ticket or boarding prerequisite is imposed.
+
+The single carried crate changes its label to **FRESH PRODUCE**, with no second inventory slot. Jobs, inventory, and tracked delivery targets follow the active run. Both deliveries are one-time per saved game; final completion clears the delivery waypoint. The Habitat Walk and the other two jobs remain independent.
 
 ## Local saves
 
-Discoveries use stable landmark IDs. Seed delivery saves its available/carrying/complete phase; civic maintenance saves acceptance, repair, and reporting; sunline maintenance saves available/isolated/replaced/complete. Mute preference is restored before entering without starting audio. A carried crate reappears when you enter, including aboard the trolley, not over the intro or pause screen. Progress/preferences save immediately when they change; leaving an untouched older tab does not rewrite newer progress.
+Discoveries use stable landmark IDs. Delivery saves the seed phase and the subsequent produce phase (`supplyPhase`); civic maintenance saves acceptance, repair, and reporting; sunline maintenance saves available/isolated/replaced/complete. Mute preference is restored before entering without starting audio. Carried cargo reappears when you enter, including aboard either ride, not over intro, pause, or map screens. Progress/preferences save immediately when they change; leaving an untouched older tab does not rewrite newer progress.
 
-Progress belongs to this browser and URL origin, using the existing **`new-dawn.save.v1`** localStorage record. Older saves without `sunlinePhase` start the new job without losing discoveries, cargo, civic maintenance, or mute preference. Active map/waypoint tracking selection is ephemeral and is not persisted in the save record (no save migration required). Different browsers, devices, ports, and development/preview URLs do not share saves. Player position and resident route positions are not saved: choose an endcap or neighborhood entrance when returning. Saved progress stays in the browser, not in the source repository.
+Progress belongs to this browser and URL origin, using the existing **`new-dawn.save.v1`** localStorage record. Older saves without `sunlinePhase` start that job without losing other progress. Saves without `supplyPhase` start produce as available; a completed seed delivery unlocks pickup at the farm desk, without replaying seeds. Invalid or contradictory supply progress is recovered rather than creating premature cargo. Active map/waypoint selection is not persisted. Different browsers, devices, ports, and development/preview URLs do not share saves. Player and resident positions are not saved: choose an entrance when returning. Saved progress stays in the browser, not in the source repository.
 
 Use one active gameplay tab per origin: simultaneous progress changes in separate tabs are not merged. An idle stale tab can safely close, but an actual change in either active game writes that game’s current snapshot.
 
@@ -165,6 +169,8 @@ $env:HABITAT_REAL_GPU = "1"
 npm.cmd run test:browser
 Remove-Item Env:HABITAT_REAL_GPU
 ```
+
+The native `checks/supply.spec.js` story earns progress, walks the farm route, and waits for the actual scheduled tram; it never speeds up gameplay. It has longer wall-clock budgets under SwiftShader, where this scene can render extremely slowly. The normal graphics backend is recommended for that full journey.
 
 The production files are in `dist/`. Serve that folder with an ordinary static web server. Development and preview servers bind only to the local machine. The retained `checks/` fixtures are not part of the default production build.
 

@@ -2,7 +2,7 @@ import * as THREE from "three";
 import { RADIUS } from "./habitat.js";
 import { horizontalDistance } from "./cylinder-math.js";
 import { surfacePos } from "./surface.js";
-import { DELIVERY_STATIONS } from "./delivery-layout.js";
+import { DELIVERY_STATIONS, SUPPLY_STATIONS } from "./delivery-layout.js";
 
 /**
  * Creates dynamic canvas textures for legible station signage.
@@ -13,6 +13,7 @@ function createStationSignTexture(
   titleText,
   subtitleText,
   accentColor,
+  footerText = "GREENWAY COMMONS · AGRI-SUPPLY",
 ) {
   const canvas = document.createElement("canvas");
   canvas.width = 512;
@@ -60,7 +61,7 @@ function createStationSignTexture(
   // Sub-footer
   ctx.fillStyle = accentColor;
   ctx.font = "16px monospace";
-  ctx.fillText("GREENWAY COMMONS · AGRI-SUPPLY", 28, 216);
+  ctx.fillText(footerText, 28, 216);
 
   const texture = new THREE.CanvasTexture(canvas);
   texture.colorSpace = THREE.SRGBColorSpace;
@@ -68,9 +69,9 @@ function createStationSignTexture(
 }
 
 /**
- * Creates the canvas stencil texture applied to the seed crate props.
+ * Creates the canvas stencil for a seed or produce crate.
  */
-function createCrateLabelTexture() {
+function createCrateLabelTexture(produce = false) {
   const canvas = document.createElement("canvas");
   canvas.width = 512;
   canvas.height = 256;
@@ -86,33 +87,33 @@ function createCrateLabelTexture() {
   ctx.strokeRect(10, 10, 492, 236);
 
   // Top amber accent banner
-  ctx.fillStyle = "#d97718";
+  ctx.fillStyle = produce ? "#35834e" : "#d97718";
   ctx.fillRect(10, 10, 492, 26);
   ctx.fillStyle = "#ffffff";
   ctx.font = "bold 14px monospace";
   ctx.textAlign = "center";
   ctx.textBaseline = "middle";
-  ctx.fillText("CYLINDER BOTANICAL REPOSITORY", 256, 23);
+  ctx.fillText(produce ? "GREENWAY COMMONS FARM" : "CYLINDER BOTANICAL REPOSITORY", 256, 23);
 
   // Stencil brand text
   ctx.fillStyle = "#271b12";
   ctx.font = "900 36px monospace";
-  ctx.fillText("HERITAGE SEEDS", 256, 88);
+  ctx.fillText(produce ? "FRESH PRODUCE" : "HERITAGE SEEDS", 256, 88);
 
   // Teal lot code
   ctx.font = "bold 24px monospace";
   ctx.fillStyle = "#1b4d4f";
-  ctx.fillText("LOT #408 // CYL-N1", 256, 130);
+  ctx.fillText(produce ? "FARM TO CITY // CYL-N1" : "LOT #408 // CYL-N1", 256, 130);
 
   // Receiving destination
   ctx.font = "600 20px system-ui, sans-serif";
   ctx.fillStyle = "#3d2b1f";
-  ctx.fillText("DEST: GLASSHOUSE 01", 256, 172);
+  ctx.fillText(produce ? "DEST: MERIDIAN PLAZA" : "DEST: GLASSHOUSE 01", 256, 172);
 
   // Handling notice
   ctx.fillStyle = "#63503f";
   ctx.font = "14px monospace";
-  ctx.fillText("KEEP COOL & DRY · VIABLE GERMPLASM", 256, 214);
+  ctx.fillText(produce ? "FRESH HARVEST · HANDLE WITH CARE" : "KEEP COOL & DRY · VIABLE GERMPLASM", 256, 214);
 
   const texture = new THREE.CanvasTexture(canvas);
   texture.colorSpace = THREE.SRGBColorSpace;
@@ -219,30 +220,52 @@ function buildStationMarker(accentColor, ringColor) {
 }
 
 /**
- * Initializes and manages the seed crate delivery gameplay, station visuals,
+ * Manages the seed delivery followed by the farm-to-city supply run, station visuals,
  * carried camera-attached prop, and interaction state.
  *
  * @param {THREE.Object3D} parent - District world group in the O'Neill cylinder
  * @param {THREE.Camera} camera - Player PerspectiveCamera
- * @param {string} [initialPhase="available"] - Initial restored delivery phase
- * @returns {{ obstacles, update, setActive, getView, interact, getPhase }}
+ * @param {string} [initialPhase="available"] - Restored seed delivery phase
+ * @param {string} [initialSupplyPhase="available"] - Restored unlocked produce phase
+ * @returns {{ obstacles, update, setActive, getView, interact, getPhase, getSupplyPhase }}
  */
-export function createDelivery(parent, camera, initialPhase = "available") {
+export function createDelivery(parent, camera, initialPhase = "available", initialSupplyPhase = "available") {
   const deliveryGroup = new THREE.Group();
   deliveryGroup.name = "delivery_stations";
   parent.add(deliveryGroup);
 
   const crateLabelTexture = createCrateLabelTexture();
+  const produceLabelTexture = createCrateLabelTexture(true);
 
   // Pre-cached stable targets
   const TARGET_PICKUP = Object.freeze({
     theta: DELIVERY_STATIONS.pickup.s / RADIUS,
     y: DELIVERY_STATIONS.pickup.y,
+    height: 0,
+    range: DELIVERY_STATIONS.pickup.range,
+    name: "Heritage seed crate",
   });
 
   const TARGET_DROPOFF = Object.freeze({
     theta: DELIVERY_STATIONS.dropoff.s / RADIUS,
     y: DELIVERY_STATIONS.dropoff.y,
+    height: 0,
+    range: DELIVERY_STATIONS.dropoff.range,
+    name: "Glasshouse 01 receiving desk",
+  });
+  const TARGET_SUPPLY_PICKUP = Object.freeze({
+    theta: SUPPLY_STATIONS.pickup.s / RADIUS,
+    y: SUPPLY_STATIONS.pickup.y,
+    height: 0,
+    range: SUPPLY_STATIONS.pickup.range,
+    name: "Glasshouse 01 produce dispatch",
+  });
+  const TARGET_SUPPLY_DROPOFF = Object.freeze({
+    theta: SUPPLY_STATIONS.dropoff.s / RADIUS,
+    y: SUPPLY_STATIONS.dropoff.y,
+    height: 0,
+    range: SUPPLY_STATIONS.dropoff.range,
+    name: "Meridian produce receiver",
   });
 
   // Matching static ground collision boxes (crate is decorative)
@@ -257,6 +280,13 @@ export function createDelivery(parent, camera, initialPhase = "available") {
     {
       theta: TARGET_DROPOFF.theta,
       y: TARGET_DROPOFF.y,
+      width: 1.4,
+      depth: 0.8,
+      height: 0.85,
+    },
+    {
+      theta: TARGET_SUPPLY_DROPOFF.theta,
+      y: TARGET_SUPPLY_DROPOFF.y,
       width: 1.4,
       depth: 0.8,
       height: 0.85,
@@ -374,6 +404,29 @@ export function createDelivery(parent, camera, initialPhase = "available") {
   dropoffTrimS.position.set(0, -0.39, 0.83);
   dropoffGroup.add(dropoffTrimS);
 
+  // Reuse the table's geometry/materials before adding the farm-only props.
+  const supplyReceiver = dropoffGroup.clone(true);
+  supplyReceiver.name = "meridian_produce_receiver";
+  supplyReceiver.position.copy(surfacePos(TARGET_SUPPLY_DROPOFF.theta, TARGET_SUPPLY_DROPOFF.y, 0));
+  supplyReceiver.rotation.y = -TARGET_SUPPLY_DROPOFF.theta;
+  deliveryGroup.add(supplyReceiver);
+  const receiverSign = new THREE.Mesh(
+    new THREE.PlaneGeometry(1.1, 0.5),
+    new THREE.MeshBasicMaterial({
+      map: createStationSignTexture("RECEIVING", "MERIDIAN PLAZA", "Fresh Produce Drop Point", "#67c488", "MERIDIAN · FOOD SUPPLY"),
+      side: THREE.DoubleSide,
+    }),
+  );
+  receiverSign.position.set(0, -0.41, 1.15);
+  receiverSign.rotation.x = Math.PI / 2;
+  supplyReceiver.add(receiverSign);
+  const receivedProduce = buildStationCrate(produceLabelTexture);
+  receivedProduce.position.set(0, 0, 1.03);
+  supplyReceiver.add(receivedProduce);
+  const supplyMarker = buildStationMarker(0x67c488, 0xffb74d);
+  supplyMarker.group.position.set(0, 0, 1.62);
+  supplyReceiver.add(supplyMarker.group);
+
   // Station signboard facing west (-X direction towards glasshouse aisle)
   const dropoffSignTex = createStationSignTexture(
     "RECEIVING",
@@ -381,6 +434,7 @@ export function createDelivery(parent, camera, initialPhase = "available") {
     "Nursery Drop Point",
     "#26c6da",
   );
+  const dispatchSignTex = createStationSignTexture("DISPATCH", "GLASSHOUSE 01", "Produce for Meridian Plaza", "#67c488");
   const dropoffSignMat = new THREE.MeshBasicMaterial({
     map: dropoffSignTex,
     side: THREE.DoubleSide,
@@ -407,7 +461,7 @@ export function createDelivery(parent, camera, initialPhase = "available") {
   // 3. CARRIED CRATE PROP (Attached to Camera)
   // ----------------------------------------------------
   const carriedCrateGroup = new THREE.Group();
-  carriedCrateGroup.name = "carried_seed_crate";
+  carriedCrateGroup.name = "carried_delivery_crate";
   // Camera-local: lower-right corner, non-obscuring
   carriedCrateGroup.position.set(0.4, -0.35, -0.85);
   carriedCrateGroup.visible = false;
@@ -459,26 +513,49 @@ export function createDelivery(parent, camera, initialPhase = "available") {
   // ----------------------------------------------------
   const VALID_PHASES = new Set(["available", "carrying", "complete"]);
   let phase = VALID_PHASES.has(initialPhase) ? initialPhase : "available";
+  let supplyPhase = phase === "complete" && VALID_PHASES.has(initialSupplyPhase)
+    ? initialSupplyPhase
+    : "available";
   let active = false;
 
+  function isCarrying() {
+    return phase === "carrying" || (phase === "complete" && supplyPhase === "carrying");
+  }
+
   function updateVisualsForPhase() {
+    const unlocked = phase === "complete";
     pickupCrateGroup.visible = phase === "available";
     pickupMarker.group.visible = phase === "available";
-    dropoffCrateGroup.visible = phase === "complete";
-    dropoffMarker.group.visible = phase === "carrying";
-    carriedCrateGroup.visible = active && phase === "carrying";
+    dropoffCrateGroup.visible = unlocked && supplyPhase === "available";
+    dropoffMarker.group.visible = phase === "carrying" || (unlocked && supplyPhase === "available");
+    supplyMarker.group.visible = unlocked && supplyPhase === "carrying";
+    receivedProduce.visible = unlocked && supplyPhase === "complete";
+    carriedCrateGroup.visible = active && isCarrying();
+    if (unlocked) {
+      dropoffSignMat.map = dispatchSignTex;
+      dropoffCrateGroup.traverse((node) => {
+        if (node.isMesh && node.material.map === crateLabelTexture) {
+          node.material.map = produceLabelTexture;
+        }
+      });
+      carriedLabelMat.map = produceLabelTexture;
+    }
   }
 
   // Set initial prop and beacon visibilities for restored phase
   updateVisualsForPhase();
 
   /**
-   * Returns current delivery phase.
+   * Returns the saved seed phase; the active HUD advances to produce after completion.
    *
    * @returns {"available" | "carrying" | "complete"}
    */
   function getPhase() {
     return phase;
+  }
+
+  function getSupplyPhase() {
+    return supplyPhase;
   }
 
   /**
@@ -489,7 +566,7 @@ export function createDelivery(parent, camera, initialPhase = "available") {
    */
   function setActive(bool) {
     active = Boolean(bool);
-    carriedCrateGroup.visible = active && phase === "carrying";
+    carriedCrateGroup.visible = active && isCarrying();
   }
 
   /**
@@ -517,10 +594,21 @@ export function createDelivery(parent, camera, initialPhase = "available") {
         updateVisualsForPhase();
         return {
           phase: "complete",
-          message: "Delivered heritage seed crate to Glasshouse 01.",
+          message: "Seeds delivered. Press E again at this desk to collect produce for Meridian.",
         };
       }
       return null;
+    }
+
+    if (supplyPhase === "available" && isEligible(playerState, SUPPLY_STATIONS.pickup)) {
+      supplyPhase = "carrying";
+      updateVisualsForPhase();
+      return { phase: "carrying", message: "Produce collected. Take the tram to Meridian Plaza." };
+    }
+    if (supplyPhase === "carrying" && isEligible(playerState, SUPPLY_STATIONS.dropoff)) {
+      supplyPhase = "complete";
+      updateVisualsForPhase();
+      return { phase: "complete", message: "Fresh produce delivered to Meridian Plaza. Thank you!" };
     }
 
     return null;
@@ -530,66 +618,50 @@ export function createDelivery(parent, camera, initialPhase = "available") {
    * Returns current UI and mission HUD state.
    *
    * @param {object} playerState
-   * @returns {{ phase, title, objective, inventory, prompt, target, distance }}
+   * @returns {{ id, phase, title, objective, inventory, prompt, target, distance, progress, status }}
    */
   function getView(playerState) {
-    if (phase === "available") {
-      const eligible = isEligible(playerState, DELIVERY_STATIONS.pickup);
-      const dist = playerState
-        ? horizontalDistance(
-            playerState.theta,
-            playerState.y,
-            TARGET_PICKUP.theta,
-            TARGET_PICKUP.y,
-            0,
-          )
-        : 0;
-
-      return {
-        phase: "available",
-        title: "A small favor",
-        objective:
-          "Collect the heritage seed crate east of the square approach.",
-        inventory: "",
-        prompt: eligible ? "Pick up seed crate" : null,
-        target: TARGET_PICKUP,
-        distance: dist,
-      };
+    const produce = phase === "complete";
+    const currentPhase = produce ? supplyPhase : phase;
+    const carrying = currentPhase === "carrying";
+    const complete = currentPhase === "complete";
+    const station = produce
+      ? (carrying ? SUPPLY_STATIONS.dropoff : SUPPLY_STATIONS.pickup)
+      : (carrying ? DELIVERY_STATIONS.dropoff : DELIVERY_STATIONS.pickup);
+    const target = complete ? null : produce
+      ? (carrying ? TARGET_SUPPLY_DROPOFF : TARGET_SUPPLY_PICKUP)
+      : (carrying ? TARGET_DROPOFF : TARGET_PICKUP);
+    const eligible = !complete && isEligible(playerState, station);
+    let objective;
+    if (!produce) {
+      objective = carrying
+        ? "Take the east lane to Glasshouse 01. The receiving desk is on the right inside."
+        : "Collect the heritage seed crate east of the square approach.";
+    } else if (complete) {
+      objective = "Fresh produce delivered to Meridian Plaza. Farm and city are connected!";
+    } else {
+      objective = carrying
+        ? "Exit by the glasshouse south door; take the south cross-lane west to the tram. Ride to Meridian Plaza. From its pad walk north just short of the next gantry, east to the receiver lane, then north to the desk."
+        : "Collect produce from the Glasshouse 01 receiving desk. From the tram use the south cross-lane and south door, not the glasshouse west wall.";
     }
-
-    if (phase === "carrying") {
-      const eligible = isEligible(playerState, DELIVERY_STATIONS.dropoff);
-      const dist = playerState
-        ? horizontalDistance(
-            playerState.theta,
-            playerState.y,
-            TARGET_DROPOFF.theta,
-            TARGET_DROPOFF.y,
-            0,
-          )
-        : 0;
-
-      return {
-        phase: "carrying",
-        title: "A small favor",
-        objective:
-          "Take the east lane to Glasshouse 01. The receiving desk is on the right inside.",
-        inventory: "Heritage seed crate",
-        prompt: eligible ? "Deliver seed crate" : null,
-        target: TARGET_DROPOFF,
-        distance: dist,
-      };
-    }
-
     return {
-      phase: "complete",
-      title: "A small favor",
-      objective:
-        "Delivered to Glasshouse 01. The greenhouse team sends their thanks!",
-      inventory: "",
-      prompt: null,
-      target: null,
-      distance: 0,
+      id: produce ? "produce" : "seed",
+      phase: currentPhase,
+      title: produce ? "Farm to city" : "A small favor",
+      objective,
+      inventory: carrying ? (produce ? "Fresh produce crate" : "Heritage seed crate") : "",
+      prompt: eligible
+        ? (carrying ? (produce ? "Deliver produce crate" : "Deliver seed crate")
+          : (produce ? "Collect produce crate" : "Pick up seed crate"))
+        : null,
+      target,
+      distance: playerState && target
+        ? horizontalDistance(playerState.theta, playerState.y, target.theta, target.y, 0)
+        : 0,
+      progress: complete ? "2 / 2" : carrying ? "1 / 2" : "0 / 2",
+      status: complete ? "SUPPLY RUN COMPLETE" : carrying
+        ? (produce ? "DELIVER TO MERIDIAN PLAZA" : "DELIVER TO GLASSHOUSE 01")
+        : "READY FOR PICKUP",
     };
   }
 
@@ -631,6 +703,13 @@ export function createDelivery(parent, camera, initialPhase = "available") {
       dropoffMarker.ring.rotation.z = elapsed * -0.9;
       dropoffMarker.beaconMat.opacity = 0.8 + 0.18 * Math.sin(elapsed * 3.4);
     }
+    if (supplyMarker.group.visible) {
+      supplyMarker.group.position.z = 1.62 + Math.sin(elapsed * 2.8) * 0.05;
+      supplyMarker.beacon.rotation.y = elapsed * 1.6;
+      supplyMarker.beacon.rotation.x = elapsed * 0.7;
+      supplyMarker.ring.rotation.z = elapsed * -0.9;
+      supplyMarker.beaconMat.opacity = 0.8 + 0.18 * Math.sin(elapsed * 3.4);
+    }
   }
 
   return {
@@ -640,5 +719,6 @@ export function createDelivery(parent, camera, initialPhase = "available") {
     getView,
     interact,
     getPhase,
+    getSupplyPhase,
   };
 }

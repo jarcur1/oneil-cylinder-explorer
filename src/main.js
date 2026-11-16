@@ -253,6 +253,7 @@ try {
     saveWritten = saveStore.save({
       discoveries: [...found],
       deliveryPhase: delivery.getPhase(),
+      supplyPhase: delivery.getSupplyPhase(),
       maintenancePhase: maintenance.getPhase(),
       sunlinePhase: sunline.getPhase(),
       muted: soundscape.getState().muted,
@@ -782,27 +783,14 @@ try {
     );
     const jobs = getJobViews(state);
     const job = jobs.delivery;
-    if (ui.job.dataset.phase !== job.phase) {
+    if (ui.job.dataset.phase !== job.phase || ui.job.dataset.run !== job.id) {
       ui.job.dataset.phase = job.phase;
+      ui.job.dataset.run = job.id;
       setClass(ui.job, "complete", job.phase === "complete");
       setText(ui.jobTitle, job.title);
       setText(ui.jobObjective, job.objective);
-      setText(
-        ui.jobProgress,
-        job.phase === "available"
-          ? "0 / 2"
-          : job.phase === "carrying"
-            ? "1 / 2"
-            : "2 / 2",
-      );
-      setText(
-        ui.jobStatus,
-        job.phase === "available"
-          ? "READY FOR PICKUP"
-          : job.phase === "carrying"
-            ? "DELIVER TO GLASSHOUSE 01"
-            : "DELIVERY COMPLETE",
-      );
+      setText(ui.jobProgress, job.progress);
+      setText(ui.jobStatus, job.status);
       setHidden(ui.jobHelp, job.phase === "complete");
     }
     setText(
@@ -843,11 +831,9 @@ try {
     const tracking = navigation.getSelection();
     const trackedJob = tracking?.kind === "job" ? jobs[tracking.id] : null;
     const summaryJob = trackedJob || job;
-    const summaryStatus = summaryJob.status ||
-      (summaryJob === job ? ui.jobStatus.textContent : "");
     setText(
       ui.jobsSummary,
-      `${summaryJob.title} · ${summaryStatus}${summaryJob.target ? ` · ${Math.round(summaryJob.distance)} m` : ""}`,
+      `${summaryJob.title} · ${summaryJob.status}${summaryJob.target ? ` · ${Math.round(summaryJob.distance)} m` : ""}`,
     );
     setData(ui.sunlineDistrict, "online", districtStatus.online);
     const reaction = residents.getReaction(state, lightJob.phase);
@@ -936,6 +922,7 @@ try {
       saveStore.save({
         discoveries: [],
         deliveryPhase: "available",
+        supplyPhase: "available",
         maintenancePhase: "available",
         sunlinePhase: "available",
         muted: soundscape.getState().muted,

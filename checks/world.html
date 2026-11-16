@@ -38,7 +38,7 @@
       import { getCityLift } from "../src/city-transit.js";
       import { getSunlineTransfer } from "../src/sunline-transit.js";
       import { DISTRICT_BOUNDS, DISTRICT_STOPS } from "../src/district-layout.js";
-      import { DELIVERY_STATIONS } from "../src/delivery-layout.js";
+      import { DELIVERY_STATIONS, SUPPLY_STATIONS } from "../src/delivery-layout.js";
       import {
         MAIN_LIFT,
         SKYWALK_LIFT,
@@ -440,7 +440,7 @@
 
       function inspectCarriedCargo() {
         scene.updateMatrixWorld(true);
-        const crate = scene.getObjectByName("carried_seed_crate");
+        const crate = scene.getObjectByName("carried_delivery_crate");
         if (!crate) return { found: false };
         const wp = new THREE.Vector3();
         crate.getWorldPosition(wp);
@@ -1093,6 +1093,7 @@
           DISTRICT_BOUNDS,
           DISTRICT_STOPS,
           DELIVERY_STATIONS,
+          SUPPLY_STATIONS,
           CITY_BOUNDS,
           CITY_STOPS,
           TOWER,
