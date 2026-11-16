@@ -321,7 +321,9 @@ export function createPlayer(camera, domElement, options = {}) {
   function onKeyUp(e) {
     if (!enabled) return;
     if (isGameplayKey(e.code, e.key)) {
-      e.preventDefault();
+      const nativeButtonSpace =
+        (e.code === "Space" || e.key === " ") && e.target?.closest?.("button");
+      if (!nativeButtonSpace) e.preventDefault();
       setKeyState(e.code, e.key, false);
     }
   }

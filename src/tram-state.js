@@ -212,8 +212,39 @@ export function createTramState() {
     target.stationId = seg.stationId;
     target.nextStationId = seg.nextStationId;
     target.direction = seg.direction;
+    target.destinationStationId = TRAM_STOPS[seg.direction > 0 ? TRAM_STOPS.length - 1 : 0].id;
     target.departureIn = isDwell ? seg.end - clock : 0;
     target.arrivalIn = isDwell ? seg.nextLegEnd - clock : seg.end - clock;
+    return target;
+  }
+
+  function getStopStatus(stopId, out = {}) {
+    if (!STOP_BY_ID.has(stopId)) return null;
+    const current = findSegment(clock);
+    const docked = current.phase === "dwell" && current.stationId === stopId;
+    let visit = docked ? current : null;
+    let arrivalIn = docked ? 0 : Infinity;
+    if (!docked) {
+      for (const segment of SEGMENTS) {
+        if (segment.phase !== "dwell" || segment.stationId !== stopId) continue;
+        let wait = segment.start - clock;
+        if (wait < 0) wait += TOTAL_PERIOD;
+        if (wait < arrivalIn) {
+          arrivalIn = wait;
+          visit = segment;
+        }
+      }
+    }
+    if (!visit) throw new Error(`Tram station has no scheduled visit: ${stopId}`);
+    const target = out && typeof out === "object" ? out : {};
+    target.stationId = stopId;
+    target.docked = docked;
+    target.arrivalIn = arrivalIn;
+    target.departureIn = docked ? current.end - clock : 0;
+    target.boardingOpen = docked && target.departureIn >= TRAM_BOARD_WINDOW;
+    target.direction = visit.direction;
+    target.destinationStationId =
+      TRAM_STOPS[visit.direction > 0 ? TRAM_STOPS.length - 1 : 0].id;
     return target;
   }
 
@@ -276,6 +307,7 @@ export function createTramState() {
     update,
     getPose,
     getState,
+    getStopStatus,
     getInteraction,
     canCommitTransfer,
   };

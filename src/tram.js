@@ -32,66 +32,96 @@ const DOOR_SLIDE_DISTANCE = 0.62;
 const DOOR_CLOSE_WINDOW = 0.35;
 const WHEEL_RADIUS = 0.28;
 
-function createStationPlaqueMaterial(stop) {
-  const canvas = document.createElement("canvas");
-  canvas.width = 512;
-  canvas.height = 224;
-  const ctx = canvas.getContext("2d");
-
-  ctx.fillStyle = "#112829";
-  ctx.fillRect(0, 0, 512, 224);
-  ctx.strokeStyle = "#5eead4";
-  ctx.lineWidth = 8;
-  ctx.strokeRect(8, 8, 496, 208);
-
-  ctx.fillStyle = "#5eead4";
-  ctx.fillRect(24, 24, 186, 30);
-  ctx.fillStyle = "#081c1d";
-  ctx.font = "bold 17px monospace";
-  ctx.textAlign = "center";
-  ctx.textBaseline = "middle";
-  ctx.fillText("CIVIC TRAM STOP", 117, 39);
-
-  ctx.fillStyle = "#f5f1e3";
-  ctx.font = "bold 34px system-ui, sans-serif";
-  ctx.textAlign = "left";
-  ctx.fillText(stop.name.toUpperCase(), 24, 102, 464);
-
-  ctx.fillStyle = "#cbd5e1";
-  ctx.font = "22px system-ui, sans-serif";
-  ctx.fillText("STAND ON PAD · [E] BOARD CAR", 24, 152, 464);
-
-  ctx.fillStyle = "#94a3b8";
-  ctx.font = "16px monospace";
-  ctx.fillText(`ELEVATION 13m · Y ${stop.y}m`, 24, 190, 464);
-
-  const texture = new THREE.CanvasTexture(canvas);
-  texture.colorSpace = THREE.SRGBColorSpace;
-  return new THREE.MeshBasicMaterial({ map: texture });
+function countdown(seconds) {
+  const whole = Math.ceil(Math.max(0, seconds));
+  return `${Math.floor(whole / 60).toString().padStart(2, "0")}:${(whole % 60).toString().padStart(2, "0")}`;
 }
 
-function createStationBannerMaterial(stop) {
+function createStationDisplay(stop, wide = false) {
   const canvas = document.createElement("canvas");
-  canvas.width = 1024;
+  canvas.width = wide ? 1024 : 512;
   canvas.height = 224;
   const ctx = canvas.getContext("2d");
+  ctx.scale(canvas.width / 512, 1);
+  const texture = new THREE.CanvasTexture(canvas);
+  texture.colorSpace = THREE.SRGBColorSpace;
+  const material = new THREE.MeshBasicMaterial({ map: texture });
+  let lastSeconds = -1;
+  let lastDocked;
+  let lastBoarding;
+  let lastDirection;
+  let lastDestination;
 
-  ctx.fillStyle = "#122c2e";
-  ctx.fillRect(0, 0, 1024, 224);
-  ctx.strokeStyle = "#d49b35";
-  ctx.lineWidth = 10;
-  ctx.strokeRect(10, 10, 1004, 204);
+  function repaint(status) {
+    const seconds = Math.ceil(status.docked ? status.departureIn : status.arrivalIn);
+    if (
+      seconds === lastSeconds &&
+      status.docked === lastDocked &&
+      status.boardingOpen === lastBoarding &&
+      status.direction === lastDirection &&
+      status.destinationStationId === lastDestination
+    ) return;
+    lastSeconds = seconds;
+    lastDocked = status.docked;
+    lastBoarding = status.boardingOpen;
+    lastDirection = status.direction;
+    lastDestination = status.destinationStationId;
+    ctx.fillStyle = "#112829";
+    ctx.fillRect(0, 0, 512, 224);
+    ctx.strokeStyle = status.boardingOpen ? "#d5f58e" : "#5eead4";
+    ctx.lineWidth = 8;
+    ctx.strokeRect(8, 8, 496, 208);
+    ctx.textAlign = "left";
+    ctx.textBaseline = "middle";
+    ctx.fillStyle = "#f5f1e3";
+    ctx.font = "bold 32px system-ui, sans-serif";
+    ctx.fillText(stop.name.toUpperCase(), 24, 45, 464);
+    ctx.fillStyle = "#fcd34d";
+    ctx.font = "bold 24px monospace";
+    const destination = STOP_NAME_BY_ID.get(status.destinationStationId);
+    ctx.fillText(`TO ${destination.toUpperCase()}`, 24, 89, 464);
+    ctx.fillStyle = status.boardingOpen ? "#d5f58e" : "#ffffff";
+    ctx.font = "bold 28px monospace";
+    const service = !status.docked
+      ? `ARRIVES IN ${countdown(status.arrivalIn)}`
+      : status.boardingOpen
+        ? `DEPARTS IN ${countdown(status.departureIn)}`
+        : "DOORS CLOSING";
+    ctx.fillText(service, 24, 139, 464);
+    ctx.fillStyle = "#cbd5e1";
+    ctx.font = "18px monospace";
+    ctx.fillText(
+      status.boardingOpen
+        ? "STAND ON PAD · [E] BOARD"
+        : status.docked
+          ? "WAIT FOR NEXT SERVICE"
+          : `${status.direction > 0 ? "NORTHBOUND" : "SOUTHBOUND"} · DECK 13m`,
+      24, 187, 464,
+    );
+    texture.needsUpdate = true;
+  }
+  return { material, repaint };
+}
 
-  ctx.fillStyle = "#f3eee0";
-  ctx.font = "bold 62px system-ui, sans-serif";
+function createBoardingPadMaterial() {
+  const canvas = document.createElement("canvas");
+  canvas.width = 512;
+  canvas.height = 768;
+  const ctx = canvas.getContext("2d");
+  ctx.fillStyle = "#123b3c";
+  ctx.fillRect(0, 0, 512, 768);
+  ctx.strokeStyle = "#d5f58e";
+  ctx.lineWidth = 24;
+  ctx.strokeRect(18, 18, 476, 732);
+  ctx.fillStyle = "#f5f1e3";
   ctx.textAlign = "center";
   ctx.textBaseline = "middle";
-  ctx.fillText(stop.name.toUpperCase(), 512, 86, 940);
-
-  ctx.fillStyle = "#7dd3c8";
-  ctx.font = "bold 32px monospace";
-  ctx.fillText("LINE 01 · ELEVATED CIVIC TRAM · DECK 13m", 512, 160, 940);
-
+  ctx.font = "bold 82px monospace";
+  ctx.fillText("TRAM", 256, 147);
+  ctx.font = "bold 280px monospace";
+  ctx.fillText("E", 256, 397);
+  ctx.font = "bold 48px monospace";
+  ctx.fillText("WAIT HERE", 256, 639);
   const texture = new THREE.CanvasTexture(canvas);
   texture.colorSpace = THREE.SRGBColorSpace;
   return new THREE.MeshBasicMaterial({ map: texture });
@@ -106,12 +136,22 @@ function createDestinationDisplay() {
   texture.colorSpace = THREE.SRGBColorSpace;
   const material = new THREE.MeshBasicMaterial({ map: texture });
 
-  let lastKey = "";
+  let lastPhase;
+  let lastStation;
+  let lastNext;
+  let lastDirection;
 
   function repaint(tramState) {
-    const key = `${tramState.phase}|${tramState.stationId ?? ""}|${tramState.nextStationId ?? ""}|${tramState.direction}`;
-    if (key === lastKey) return;
-    lastKey = key;
+    if (
+      tramState.phase === lastPhase &&
+      tramState.stationId === lastStation &&
+      tramState.nextStationId === lastNext &&
+      tramState.direction === lastDirection
+    ) return;
+    lastPhase = tramState.phase;
+    lastStation = tramState.stationId;
+    lastNext = tramState.nextStationId;
+    lastDirection = tramState.direction;
 
     ctx.fillStyle = "#0b1719";
     ctx.fillRect(0, 0, 512, 128);
@@ -136,22 +176,16 @@ function createDestinationDisplay() {
     ctx.fillText(dirLabel, 488, 31);
 
     ctx.textAlign = "left";
-    if (tramState.phase === "dwell" && tramState.stationId) {
-      const stopName = STOP_NAME_BY_ID.get(tramState.stationId) ?? tramState.stationId;
-      ctx.fillStyle = "#fef3c7";
-      ctx.font = "bold 26px system-ui, sans-serif";
-      ctx.fillText(`STOP: ${stopName.toUpperCase()}`, 22, 74, 468);
-      ctx.fillStyle = "#5eead4";
-      ctx.font = "bold 18px monospace";
-      ctx.fillText(`NEXT: ${nextName.toUpperCase()}`, 22, 104, 468);
-    } else {
-      ctx.fillStyle = "#e2e8f0";
-      ctx.font = "bold 20px monospace";
-      ctx.fillText("IN TRANSIT · DOORS LOCKED", 22, 70, 468);
-      ctx.fillStyle = "#fef08a";
-      ctx.font = "bold 26px system-ui, sans-serif";
-      ctx.fillText(`NEXT: ${nextName.toUpperCase()}`, 22, 102, 468);
-    }
+    const destination = STOP_NAME_BY_ID.get(tramState.destinationStationId);
+    ctx.fillStyle = "#fef3c7";
+    ctx.font = "bold 28px system-ui, sans-serif";
+    ctx.fillText(`TO: ${destination.toUpperCase()}`, 22, 73, 468);
+    ctx.fillStyle = "#5eead4";
+    ctx.font = "bold 16px monospace";
+    const position = tramState.phase === "dwell"
+      ? `AT ${STOP_NAME_BY_ID.get(tramState.stationId).toUpperCase()}`
+      : "IN TRANSIT";
+    ctx.fillText(`${position} · NEXT: ${nextName.toUpperCase()}`, 22, 105, 468);
 
     texture.needsUpdate = true;
   }
@@ -218,11 +252,7 @@ export function createTram(parent) {
       roughness: 0.65,
       metalness: 0.18,
     }),
-    padCenter: new THREE.MeshStandardMaterial({
-      color: 0x4f5a5e,
-      roughness: 0.82,
-      metalness: 0.1,
-    }),
+    padCenter: createBoardingPadMaterial(),
     // Carriage materials
     carChassis: new THREE.MeshStandardMaterial({
       color: 0x222a2f,
@@ -568,6 +598,7 @@ export function createTram(parent) {
   const deckThickness = TRAM_HEIGHT - TRAM_PLATFORM_BASE;
   const guardrailHeight = 1.15;
 
+  const stationDisplays = [];
   for (const stop of TRAM_STOPS) {
     const stationGroup = new THREE.Group();
     stationGroup.name = `tram_station_${stop.id}`;
@@ -586,7 +617,14 @@ export function createTram(parent) {
       2.8,
       0.032,
     );
-    addSurfacePatch(stationGroup, mats.padCenter, stopArc, stop.y, 1.6, 2.4, 0.036);
+    const paintedPad = addSurfacePatch(stationGroup, mats.padCenter, stopArc, stop.y, 1.6, 2.4, 0.036);
+    const rows = paintedPad.geometry.getAttribute("position").count / 2;
+    const uv = new Float32Array(rows * 4);
+    for (let row = 0; row < rows; row++) {
+      const u = row / (rows - 1);
+      uv.set([u, 0, u, 1], row * 4);
+    }
+    paintedPad.geometry.setAttribute("uv", new THREE.BufferAttribute(uv, 2));
 
     // Slender platform support mast at s = 4.4 (clears exit s = 2.7 and civic lamps s = 6.8)
     addCivicSolid(
@@ -623,9 +661,12 @@ export function createTram(parent) {
     );
 
     // Mast-mounted boarding plaque (attached to mast at s = 4.21, no separate ground signpost)
+    const plaque = createStationDisplay(stop);
+    const banner = createStationDisplay(stop, true);
+    stationDisplays.push({ id: stop.id, status: {}, plaque, banner });
     addOrientedPanel(
       stationGroup,
-      createStationPlaqueMaterial(stop),
+      plaque.material,
       surfacePos(4.21 / RADIUS, stop.y, 2.4),
       "west",
       1.5,
@@ -739,7 +780,7 @@ export function createTram(parent) {
     );
 
     // Elevated station nameboards (shared CanvasTexture material per station)
-    const bannerMat = createStationBannerMaterial(stop);
+    const bannerMat = banner.material;
     addOrientedPanel(
       stationGroup,
       bannerMat,
@@ -1267,6 +1308,11 @@ export function createTram(parent) {
   function syncVisuals(dt = 0) {
     state.getPose(poseScratch);
     state.getState(stateScratch);
+    for (const display of stationDisplays) {
+      state.getStopStatus(display.id, display.status);
+      display.plaque.repaint(display.status);
+      display.banner.repaint(display.status);
+    }
 
     const r = RADIUS - poseScratch.height;
     carriageGroup.position.set(
@@ -1326,6 +1372,10 @@ export function createTram(parent) {
     return state.getState(out);
   }
 
+  function getStopStatus(stopId, out) {
+    return state.getStopStatus(stopId, out);
+  }
+
   function getInteraction(playerState) {
     return state.getInteraction(playerState);
   }
@@ -1342,6 +1392,7 @@ export function createTram(parent) {
     update,
     getPose,
     getState,
+    getStopStatus,
     getInteraction,
     canCommitTransfer,
   };

@@ -27,6 +27,8 @@ Open the local URL printed by Vite (normally http://127.0.0.1:5173). Do not open
 | Space                          | Jump outside secured axial areas                     |
 | E                              | Talk / service / cargo / lifts / board, exit, or inspect tram & trolley |
 | G / Map button                 | Open or close the layered habitat map                |
+| H / Habitat Walk toggle        | Expand or collapse discoveries                       |
+| J / Jobs toggle                | Expand or collapse job cards                         |
 | M / Sound button               | Mute or unmute all audio                             |
 | Escape                         | Close the map if open; otherwise pause and release mouse |
 | Arrow keys                     | Look without mouse capture                           |
@@ -36,6 +38,8 @@ Open the local URL printed by Vite (normally http://127.0.0.1:5173). Do not open
 Choose **Enter Endcap A** for the new maintenance route, **Or visit Meridian** for the city entrance, or **Or start in Greenway Commons** for the original landing. In Greenway, follow the promenade into **Market square**, take the east lane to **Glasshouse 01**, and follow the ORCHARD sign west to the stepped **Orchard overlook**. The Habitat Walk records **11 stops**: six neighborhood landmarks, two utility rooms, both endcap hubs, and the sunline service station. Discoveries require the correct floor and physical proximity.
 
 The pause menu offers Endcap A and both neighborhood teleport entrances without erasing discoveries or a carried seed crate (and cleanly cancels any pending lift or tram transfer). Switching away pauses gameplay, residents, world animation, and sound. Local at-rest gravity is shown in the HUD; negative height is labeled **DOWN** relative to the living surface.
+
+The HUD starts compact. Collapsed panels retain the discovery count/nearest landmark and the tracked job (or current delivery), while waypoints, interaction prompts, cargo, and physics remain visible. H/J and the native toggle buttons expand details; their state survives pause/map use but is not saved. Wheel/Page Up/Page Down opens Jobs before scrolling. Expanded discovery details remain available on compact screens.
 
 ## Habitat map and waypoints
 
@@ -63,6 +67,8 @@ During active play, a lightweight on-screen (or viewport-edge-clamped when off-s
 An elevated civilian shuttle runs continuously along `θ = 0` at **13 m** passenger foot height (`g(13) = 9.81 × 347 / 360 ≈ 0.964 g`) and **28 m/s** across **5 stops** (south to north): **Greenway Gateway** (`y = −520 m`), **Market Square** (`y = −470 m`), **Glasshouse 01** (`y = −434 m`), **Meridian Plaza** (`y = +435 m`), and **Civic Tower** (`y = +495 m`). The tram dwells **20 s** at the two endpoints (Greenway Gateway and Civic Tower) and **8 s** at the three intermediate stops, with no on-demand stops or time skips.
 
 Each stop pairs a ground boarding pad with an elevated platform and mast. Approach a ground pad on foot (grounded) while the tram is docked with at least `0.5 s` before departure and press **E** to board via the existing short lift/fade up to the `13 m` car floor (when the tram is away and no higher-priority interaction is active, **E** near a pad inspects service status). Aboard the tram, you stand at a fixed passenger anchor with **free look** (mouse, arrow keys, or drag)—there is **no interior walking**. Press **E** while docked at a stop (`≥ 0.5 s` before departure) to exit back to that stop’s ground pad via the short fade.
+
+Ground pads carry a high-contrast **TRAM / E** stencil. Station boards show the next visit's actual arrival countdown and terminal destination, including a returning tram in the opposite direction. Docked boards show departure time and change to **DOORS CLOSING** below the new-boarding window. The carriage shows its terminal plus the next stop; E inspection reads the same live timetable. Countdown signs freeze with the simulation rather than using wall-clock timers.
 
 Carried seed crates stay visible aboard. The tram car does not allow surface job interactions or award landmark discoveries; disembark to explore or deliver cargo. Opening the **G** map freezes the tram and shows its live marker and status. All existing **intro/pause teleport buttons** and **city, −8 m service, and endcap radial lifts** remain available.
 
@@ -151,6 +157,14 @@ npm run preview
 ```
 
 The Chromium install is a one-time development setup, not needed to play. Playwright is development-only; Three.js remains the only runtime dependency. Browser checks start an isolated Vite server on **127.0.0.1:4176**, use fresh browser contexts, and stop the test server afterward. Keep that port free; your normal demo server on 5173 is left alone.
+
+By default, browser checks use portable SwiftShader rendering. To exercise the normal full-Chromium graphics backend instead, set `HABITAT_REAL_GPU=1` (actual hardware availability still depends on the host). In PowerShell:
+
+```powershell
+$env:HABITAT_REAL_GPU = "1"
+npm.cmd run test:browser
+Remove-Item Env:HABITAT_REAL_GPU
+```
 
 The production files are in `dist/`. Serve that folder with an ordinary static web server. Development and preview servers bind only to the local machine. The retained `checks/` fixtures are not part of the default production build.
 

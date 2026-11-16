@@ -282,6 +282,55 @@ kbd {
   backdrop-filter: blur(16px);
   padding: 20px 21px;
 }
+.hud-toggle {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  width: 100%;
+  min-height: 36px;
+  padding: 0;
+  border: 0;
+  background: transparent;
+  color: #d5f58e;
+  text-align: left;
+  font: inherit;
+  font-size: 10px;
+  letter-spacing: 0.08em;
+  cursor: pointer;
+}
+.hud-toggle:focus-visible {
+  outline: 2px solid #d5f58e;
+  outline-offset: 3px;
+}
+.hud-toggle kbd {
+  margin-left: 6px;
+  font-size: 9px;
+  color: #e5eee5;
+}
+.hud-toggle[aria-expanded="true"] .hud-toggle-cue {
+  visibility: hidden;
+}
+.hud-summary {
+  margin: 7px 0 0;
+  color: #e5eee5;
+  font-size: 11px;
+  line-height: 1.5;
+  overflow-wrap: anywhere;
+}
+.job-stack > .hud-toggle,
+.job-stack > .hud-summary {
+  background: #10232be8;
+  border: 1px solid #d0ead130;
+  padding: 10px 12px;
+  margin: 0;
+  flex: 0 0 auto;
+}
+.job-details {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
 .hud-panel .eyebrow {
   color: #d5f58e;
   margin: 0;
@@ -722,7 +771,7 @@ footer {
     scrollbar-width: thin;
   }
   .hud-cards > .hud-panel,
-  .job-stack > .job-panel {
+  .job-details > .job-panel {
     position: static;
     width: auto;
     flex: 0 0 auto;
@@ -743,11 +792,6 @@ footer {
     padding: 15px;
   }
   footer > span:first-child {
-    display: none;
-  }
-  .hud-panel h2,
-  .hud-panel .mission-copy,
-  .hud-panel ol {
     display: none;
   }
   .hud-panel .objective {
