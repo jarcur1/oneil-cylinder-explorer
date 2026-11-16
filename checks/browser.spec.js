@@ -1,5 +1,19 @@
 import { test, expect } from "@playwright/test";
-
+import {
+  RADIUS,
+  LENGTH,
+  SPAWN,
+  VIEW_DISTANCE,
+} from "../src/habitat.js";
+import { DISTRICT_BOUNDS, DISTRICT_STOPS } from "../src/district-layout.js";
+import { CITY_ARRIVAL, CITY_BOUNDS, CITY_STOPS } from "../src/city-layout.js";
+import { DELIVERY_STATIONS } from "../src/delivery-layout.js";
+import {
+  AXIAL_HEIGHT,
+  ENDCAP_HUBS,
+  SUNLINE_TRACK_MIN_Y,
+  SUNLINE_TRACK_MAX_Y,
+} from "../src/sunline-layout.js";
 const waitFrames = (page, count = 2) =>
   page.evaluate(
     (n) =>
@@ -16,6 +30,8 @@ const waitFrames = (page, count = 2) =>
 test("stale untouched tab exit preserves active tab save and reset stays cleared", async ({
   browser,
 }) => {
+  // Multi-tab sequential WebGL loads, Endcap A lift + walk, reset reload, and Tab D check under software GPU.
+  test.setTimeout(120_000);
   const context = await browser.newContext({
     viewport: { width: 800, height: 600 },
   });
@@ -36,9 +52,11 @@ test("stale untouched tab exit preserves active tab save and reset stays cleared
 
       // Ride radial lift to Endcap A hub and wait for actual secured floor + discovery
       await pageA.keyboard.press("KeyE");
-      await expect(pageA.locator("#viewport")).not.toHaveClass(/lift-travel/);
+      await expect(pageA.locator("#viewport")).not.toHaveClass(/lift-travel/, {
+        timeout: 20_000,
+      });
       await expect(pageA.locator("#motion")).toHaveText("MAG BOOTS SECURED");
-      await expect(pageA.locator("#height")).toHaveText("170.0 m UP");
+      await expect(pageA.locator("#height")).toHaveText(`${AXIAL_HEIGHT.toFixed(1)} m UP`);
       await expect(pageA.locator("#area")).toContainText("ENDCAP A");
       const hubRowA = pageA.locator("#landmarks li", {
         hasText: "Endcap A maintenance hub",
@@ -47,20 +65,31 @@ test("stale untouched tab exit preserves active tab save and reset stays cleared
       await expect(hubRowA).toContainText("VISITED");
 
       // Walk along the hub deck until longitudinal coordinate reaches console row, then move laterally to console proximity
+      const controlLongitudinalM = Math.round(
+        ENDCAP_HUBS[0].control.y + LENGTH / 2,
+      );
       await pageA.keyboard.down("KeyW");
-      await pageA.waitForFunction(() => {
-        const pos = document.getElementById("position")?.textContent || "";
-        const match = pos.match(/\/\s*(\d+)\s*m$/);
-        return match && Number(match[1]) >= 28;
-      });
+      await pageA.waitForFunction(
+        (targetM) => {
+          const pos = document.getElementById("position")?.textContent || "";
+          const match = pos.match(/\/\s*(\d+)\s*m$/);
+          return match && Number(match[1]) >= targetM;
+        },
+        controlLongitudinalM,
+        { timeout: 45_000 },
+      );
       await pageA.keyboard.up("KeyW");
 
       await pageA.keyboard.down("KeyD");
-      await pageA.waitForFunction(() => {
-        const box = document.getElementById("interaction");
-        const label = document.getElementById("interaction-label");
-        return box && !box.hidden && label && label.textContent.includes("Isolate");
-      });
+      await pageA.waitForFunction(
+        () => {
+          const box = document.getElementById("interaction");
+          const label = document.getElementById("interaction-label");
+          return box && !box.hidden && label && label.textContent.includes("Isolate");
+        },
+        null,
+        { timeout: 45_000 },
+      );
       await pageA.keyboard.up("KeyD");
       await pageA.keyboard.press("KeyE");
 
@@ -418,7 +447,7 @@ for (const closeWhile of ["paused", "running"]) {
       await expect(page.locator("#pause-panel")).toBeHidden();
       await expect(page.locator("#interaction-label")).toContainText("Endcap A");
       await page.keyboard.press("KeyE");
-      await expect(page.locator("#height")).toHaveText("170.0 m UP");
+      await expect(page.locator("#height")).toHaveText(`${AXIAL_HEIGHT.toFixed(1)} m UP`);
       await expect(page.locator("#motion")).toHaveText("MAG BOOTS SECURED");
       await expect(page.locator("#sound")).toHaveText("SOUND N/A");
       expect(await page.evaluate(() => window.__audioContexts.map((ctx) => ctx.state)))
@@ -540,7 +569,7 @@ test("idle and paused frames avoid WebGL redraws while resize, resume, and pause
 
     await page.locator("#resume").click();
     await expect(page.locator("#viewport")).not.toHaveClass(/lift-travel/);
-    await expect(page.locator("#height")).toHaveText("170.0 m UP");
+    await expect(page.locator("#height")).toHaveText(`${AXIAL_HEIGHT.toFixed(1)} m UP`);
     await expect(page.locator("#motion")).toHaveText("MAG BOOTS SECURED");
     await expect(page.locator("#area")).toContainText("ENDCAP A");
   } finally {
@@ -563,11 +592,15 @@ test("authored city lifts and endcap axial trolley roundtrips work through produ
     const summary = await page.evaluate(() => {
       const f = window.__worldFixture;
       const {
+        world,
         player,
         step,
         render,
         getCityLift,
         getSunlineTransfer,
+        inspectSunlineTrolley,
+        inspectSunlineCorridorInstances,
+        walkSecuredTo,
         layouts,
       } = f;
 
@@ -660,15 +693,24 @@ test("authored city lifts and endcap axial trolley roundtrips work through produ
       }
 
       // 4. Endcap A rim -> secured -> trolley -> drive across spine -> Endcap B -> return to Endcap A rim
+      const trolleySpeed = layouts.ENDCAP_HUBS[0].trolley.constraint.speed;
+      const endcapAY = layouts.ENDCAP_HUBS[0].trolley.y;
+      const endcapBY = layouts.ENDCAP_HUBS[1].trolley.y;
+      const sl02Y = layouts.SUNLINE_PANEL.y;
+
       const driveW = (targetY, dir) => {
+        const dt = 0.05;
+        const distance = Math.abs(targetY - s.y);
+        const maxSteps = Math.ceil(distance / (trolleySpeed * dt)) + 10;
         window.dispatchEvent(new KeyboardEvent("keydown", { code: "KeyW" }));
-        for (let i = 0; i < 1100; i++) {
-          s = step(0.05);
+        for (let i = 0; i < maxSteps; i++) {
+          s = step(dt);
           if ((dir > 0 && s.y >= targetY) || (dir < 0 && s.y <= targetY)) break;
         }
         window.dispatchEvent(new KeyboardEvent("keyup", { code: "KeyW" }));
       };
 
+      const trolleyHiddenInitial = inspectSunlineTrolley();
       player.teleport(layouts.ENDCAP_HUBS[0].rim);
       s = settle(2);
       const liftToHubA = getSunlineTransfer(s);
@@ -677,12 +719,23 @@ test("authored city lifts and endcap axial trolley roundtrips work through produ
       }
       player.teleport(liftToHubA.destination);
       s = settle(4);
-      if (s.height !== 170 || s.traversalMode !== "secured") {
+      if (s.height !== layouts.AXIAL_HEIGHT || s.traversalMode !== "secured") {
         throw new Error(`Hub A arrival mismatch: ${JSON.stringify(s)}`);
       }
+      const trolleyHiddenOnLanding = inspectSunlineTrolley();
 
-      player.teleport(layouts.ENDCAP_HUBS[0].dock);
-      s = settle(2);
+      // Walk landing -> console -> dock in Endcap A using real controller keys
+      s = walkSecuredTo(
+        layouts.ENDCAP_HUBS[0].control.theta,
+        layouts.ENDCAP_HUBS[0].control.y,
+      );
+      const hubAConsolePrompt = world.sunline.getView(s).prompt;
+      render();
+
+      s = walkSecuredTo(
+        layouts.ENDCAP_HUBS[0].dock.theta,
+        layouts.ENDCAP_HUBS[0].dock.y,
+      );
       const boardA = getSunlineTransfer(s);
       if (!boardA || !boardA.prompt.includes("Board")) {
         throw new Error(`Expected trolley board at A, got ${boardA?.prompt}`);
@@ -692,57 +745,91 @@ test("authored city lifts and endcap axial trolley roundtrips work through produ
       if (s.traversalMode !== "trolley" || s.railDirection !== 1) {
         throw new Error(`Trolley A mismatch: ${JSON.stringify(s)}`);
       }
+      const trolleyBoardA = inspectSunlineTrolley();
+      render();
 
-      driveW(410, 1);
-      if (s.y !== 410) {
-        throw new Error(`Expected trolley arrival at y=410, got ${s.y}`);
+      driveW(sl02Y, 1);
+      if (Math.abs(s.y - sl02Y) > 1.0) {
+        throw new Error(`Expected trolley pass at SL-02 y=${sl02Y}, got ${s.y}`);
       }
+      const trolleyAtSl02 = inspectSunlineTrolley();
+      const sl02ObservedY = s.y;
+      const corridorInstances = inspectSunlineCorridorInstances();
+
+      driveW(endcapBY, 1);
+      if (s.y !== endcapBY) {
+        throw new Error(`Expected trolley arrival at y=${endcapBY}, got ${s.y}`);
+      }
+      const trolleyEndB = inspectSunlineTrolley();
+
       const dockB = getSunlineTransfer(s);
       if (!dockB || !dockB.prompt.includes("Endcap B")) {
         throw new Error(`Expected disembark at B, got ${dockB?.prompt}`);
       }
       player.teleport(dockB.destination);
       s = settle(2);
-      if (s.traversalMode !== "secured" || s.height !== 170) {
+      if (s.traversalMode !== "secured" || s.height !== layouts.AXIAL_HEIGHT) {
         throw new Error(`Dock B arrival mismatch: ${JSON.stringify(s)}`);
       }
+      const trolleyHiddenAfterDisembarkB = inspectSunlineTrolley();
 
-      player.teleport(layouts.ENDCAP_HUBS[1].landing);
-      s = settle(2);
+      // Walk dock -> console -> landing in Endcap B using real controller keys
+      s = walkSecuredTo(
+        layouts.ENDCAP_HUBS[1].control.theta,
+        layouts.ENDCAP_HUBS[1].control.y,
+      );
+      const hubBConsolePrompt = world.sunline.getView(s).prompt;
+
+      s = walkSecuredTo(
+        layouts.ENDCAP_HUBS[1].landing.theta,
+        layouts.ENDCAP_HUBS[1].landing.y,
+      );
       const liftToRimB = getSunlineTransfer(s);
       if (!liftToRimB || !liftToRimB.prompt.includes("Endcap B rim")) {
         throw new Error(`Expected Endcap B rim lift, got ${liftToRimB?.prompt}`);
       }
+      render();
       player.teleport(liftToRimB.destination);
       s = settle(4);
       if (s.height !== 0 || s.traversalMode !== "walk" || !s.grounded) {
         throw new Error(`Rim B arrival mismatch: ${JSON.stringify(s)}`);
       }
 
-      // Return trip: Rim B -> Hub B -> Trolley (-1) -> Dock A -> Rim A
+      // Return trip: Rim B -> Hub B landing -> walk to dock -> Trolley (-1) -> Dock A -> walk to landing -> Rim A
       player.teleport(getSunlineTransfer(s).destination);
       s = settle(2);
-      player.teleport(layouts.ENDCAP_HUBS[1].dock);
-      s = settle(2);
+      s = walkSecuredTo(
+        layouts.ENDCAP_HUBS[1].dock.theta,
+        layouts.ENDCAP_HUBS[1].dock.y,
+      );
       player.teleport(getSunlineTransfer(s).destination);
       s = settle(2);
       if (s.traversalMode !== "trolley" || s.railDirection !== -1) {
         throw new Error(`Trolley B mismatch: ${JSON.stringify(s)}`);
       }
+      const trolleyBoardB = inspectSunlineTrolley();
 
-      driveW(-410, -1);
-      if (s.y !== -410) {
-        throw new Error(`Expected trolley return at y=-410, got ${s.y}`);
+      driveW(endcapAY, -1);
+      if (s.y !== endcapAY) {
+        throw new Error(`Expected trolley return at y=${endcapAY}, got ${s.y}`);
       }
+      const trolleyReturnA = inspectSunlineTrolley();
       const dockA = getSunlineTransfer(s);
       if (!dockA || !dockA.prompt.includes("Endcap A")) {
         throw new Error(`Expected disembark at A, got ${dockA?.prompt}`);
       }
       player.teleport(dockA.destination);
       s = settle(2);
-      player.teleport(layouts.ENDCAP_HUBS[0].landing);
-      s = settle(2);
+      const trolleyHiddenAfterDisembarkA = inspectSunlineTrolley();
+
+      s = walkSecuredTo(
+        layouts.ENDCAP_HUBS[0].landing.theta,
+        layouts.ENDCAP_HUBS[0].landing.y,
+      );
       const liftToRimA = getSunlineTransfer(s);
+      if (!liftToRimA || !liftToRimA.prompt.includes("Endcap A rim")) {
+        throw new Error(`Expected Endcap A rim lift, got ${liftToRimA?.prompt}`);
+      }
       player.teleport(liftToRimA.destination);
       s = settle(4);
       render();
@@ -751,14 +838,75 @@ test("authored city lifts and endcap axial trolley roundtrips work through produ
         finalHeight: s.height,
         finalMode: s.traversalMode,
         finalGrounded: s.grounded,
+        hubAConsolePrompt,
+        hubBConsolePrompt,
+        sl02ObservedY,
+        endcapAY,
+        endcapBY,
+        axialZ: layouts.RADIUS - layouts.AXIAL_HEIGHT,
+        trolleyHiddenInitial,
+        trolleyHiddenOnLanding,
+        trolleyBoardA,
+        trolleyAtSl02,
+        trolleyEndB,
+        trolleyHiddenAfterDisembarkB,
+        trolleyBoardB,
+        trolleyReturnA,
+        trolleyHiddenAfterDisembarkA,
+        corridorInstances,
       };
     });
 
-    expect(summary).toEqual({
-      finalHeight: 0,
-      finalMode: "walk",
-      finalGrounded: true,
-    });
+    expect(summary.finalHeight).toBe(0);
+    expect(summary.finalMode).toBe("walk");
+    expect(summary.finalGrounded).toBe(true);
+    expect(summary.hubAConsolePrompt).toContain("Isolate");
+    expect(summary.hubBConsolePrompt).toContain("Isolate");
+
+    expect(summary.trolleyHiddenInitial.found).toBe(true);
+    expect(summary.trolleyHiddenInitial.visible).toBe(false);
+    expect(summary.trolleyHiddenOnLanding.visible).toBe(false);
+    expect(summary.trolleyHiddenAfterDisembarkB.visible).toBe(false);
+    expect(summary.trolleyHiddenAfterDisembarkA.visible).toBe(false);
+
+    for (const [label, sample, expectedY] of [
+      ["boardA", summary.trolleyBoardA, summary.endcapAY],
+      ["sl02", summary.trolleyAtSl02, summary.sl02ObservedY],
+      ["endB", summary.trolleyEndB, summary.endcapBY],
+      ["boardB", summary.trolleyBoardB, summary.endcapBY],
+      ["returnA", summary.trolleyReturnA, summary.endcapAY],
+    ]) {
+      expect(sample.found, `${label} found`).toBe(true);
+      expect(sample.visible, `${label} visible`).toBe(true);
+      expect(Math.abs(sample.worldPos.x), `${label} x`).toBeLessThan(0.05);
+      expect(
+        Math.abs(sample.worldPos.z - summary.axialZ),
+        `${label} z`,
+      ).toBeLessThan(0.05);
+      expect(
+        Math.abs(sample.worldPos.y - expectedY),
+        `${label} y`,
+      ).toBeLessThan(0.05);
+    }
+    expect(summary.trolleyBoardA.spareEmitterVisible).toBe(true);
+    expect(summary.trolleyBoardA.rotationZ).toBe(0);
+    expect(Math.abs(summary.trolleyBoardB.rotationZ - Math.PI)).toBeLessThan(
+      1e-5,
+    );
+
+    const expectedInstanceCount =
+      Math.floor((SUNLINE_TRACK_MAX_Y - SUNLINE_TRACK_MIN_Y) / 10) + 1;
+    expect(summary.corridorInstances.length).toBe(3);
+    for (const inst of summary.corridorInstances) {
+      expect(inst.count).toBe(expectedInstanceCount);
+      expect(inst.hasBoundingBox).toBe(true);
+      expect(inst.hasBoundingSphere).toBe(true);
+      expect(inst.minY).toBeLessThanOrEqual(SUNLINE_TRACK_MIN_Y + 0.5);
+      expect(inst.maxY).toBeGreaterThanOrEqual(SUNLINE_TRACK_MAX_Y - 0.5);
+      expect(inst.sphereRadius).toBeGreaterThanOrEqual(
+        (SUNLINE_TRACK_MAX_Y - SUNLINE_TRACK_MIN_Y) / 2,
+      );
+    }
     expect(errors).toEqual([]);
   } finally {
     await context.close();
@@ -768,9 +916,9 @@ test("authored city lifts and endcap axial trolley roundtrips work through produ
 test("real main service lift switches and restores render camera layers during travel", async ({
   browser,
 }) => {
-  // This 48 m walk and two lifts use capped simulation time. Slow software
-  // rendering can take longer than the shorter, stationary lifecycle cases.
-  test.setTimeout(90_000);
+  // This 48 m native walk, two lift travels, and WebGL pixel readbacks use
+  // capped simulation time under slow software rendering.
+  test.setTimeout(150_000);
   const context = await browser.newContext({
     viewport: { width: 800, height: 600 },
   });
@@ -907,26 +1055,36 @@ test("real main service lift switches and restores render camera layers during t
       // Align on rendered camera position; rounded HUD degrees span more than
       // three metres here and cannot reliably identify the narrow doorway.
       await page.keyboard.down("KeyA");
-      await page.waitForFunction(() => {
-        const observed = window.__serviceCameraObserver;
-        return observed.arc !== null &&
-          Math.abs(observed.arc - observed.targetArc) < 0.4;
-      });
+      await page.waitForFunction(
+        () => {
+          const observed = window.__serviceCameraObserver;
+          return (
+            observed.arc !== null &&
+            Math.abs(observed.arc - observed.targetArc) < 0.4
+          );
+        },
+        null,
+        { timeout: 45_000 },
+      );
       await page.keyboard.up("KeyA");
 
       // Sprint north along the clear south approach into the service pavilion
       await page.keyboard.down("ShiftLeft");
       await page.keyboard.down("KeyW");
-      await page.waitForFunction(() => {
-        const box = document.getElementById("interaction");
-        const label = document.getElementById("interaction-label");
-        return (
-          box &&
-          !box.hidden &&
-          label &&
-          label.textContent.includes("Descend to service level")
-        );
-      });
+      await page.waitForFunction(
+        () => {
+          const box = document.getElementById("interaction");
+          const label = document.getElementById("interaction-label");
+          return (
+            box &&
+            !box.hidden &&
+            label &&
+            label.textContent.includes("Descend to service level")
+          );
+        },
+        null,
+        { timeout: 60_000 },
+      );
       await page.keyboard.up("KeyW");
       await page.keyboard.up("ShiftLeft");
     });
@@ -937,7 +1095,9 @@ test("real main service lift switches and restores render camera layers during t
 
     await test.step("Descend to service level and verify camera switches to layer 1", async () => {
       await page.keyboard.press("KeyE");
-      await expect(page.locator("#viewport")).not.toHaveClass(/lift-travel/);
+      await expect(page.locator("#viewport")).not.toHaveClass(/lift-travel/, {
+        timeout: 20_000,
+      });
       await expect(page.locator("#height")).toHaveText("8.0 m DOWN");
       await expect(page.locator("#area")).toContainText("MERIDIAN SERVICE LEVEL");
       await expect(page.locator("#interaction")).toBeVisible();
@@ -960,7 +1120,9 @@ test("real main service lift switches and restores render camera layers during t
 
     await test.step("Return to surface and verify camera restores layer 0", async () => {
       await page.keyboard.press("KeyE");
-      await expect(page.locator("#viewport")).not.toHaveClass(/lift-travel/);
+      await expect(page.locator("#viewport")).not.toHaveClass(/lift-travel/, {
+        timeout: 20_000,
+      });
       await expect(page.locator("#height")).toHaveText("0.0 m UP");
       await expect(page.locator("#area")).toContainText("MERIDIAN CIVIC DISTRICT");
       await expect(page.locator("#interaction")).toBeVisible();
@@ -1005,10 +1167,32 @@ test("regional lighting ownership, locality, pause invariance, and four-line sig
 
     const result = await page.evaluate(() => {
       const f = window.__worldFixture;
-      const { world, layouts, sampleLuminanceAt, getLightInventory, inspectSignAt } = f;
-      const sampleGreenway = () => sampleLuminanceAt(0, -242, 4, 0, -225, 0);
-      const sampleMeridian = () => sampleLuminanceAt(0, -17, 4, 0, 0, 0);
-
+      const {
+        world,
+        camera,
+        layouts,
+        sampleLuminanceAt,
+        getLightInventory,
+        inspectSignAt,
+      } = f;
+      const sampleGreenway = () =>
+        sampleLuminanceAt(
+          0,
+          layouts.GREENWAY_PLACEMENT.toWorldY(-242),
+          4,
+          0,
+          layouts.GREENWAY_PLACEMENT.toWorldY(-225),
+          0,
+        );
+      const sampleMeridian = () =>
+        sampleLuminanceAt(
+          0,
+          layouts.MERIDIAN_PLACEMENT.toWorldY(-17),
+          4,
+          0,
+          layouts.MERIDIAN_PLACEMENT.toWorldY(0),
+          0,
+        );
       const lights = getLightInventory();
       const shadowCasters = lights.filter((l) => l.castShadow);
       const surfacePointLights = lights.filter(
@@ -1033,7 +1217,13 @@ test("regional lighting ownership, locality, pause invariance, and four-line sig
       const isolatedStatus = world.sunline.getDistrictStatus();
 
       // Partial transition then pause (dt = 0 does not advance transition)
-      const pose = { theta: 0, y: -230, height: 0, grounded: true, traversalMode: "walk" };
+      const pose = {
+        theta: 0,
+        y: layouts.GREENWAY_PLACEMENT.toWorldY(-230),
+        height: 0,
+        grounded: true,
+        traversalMode: "walk",
+      };
       world.update(0.35, 0.35, pose);
       const greenwayMid = sampleGreenway();
       world.update(0, 0.35, pose);
@@ -1068,9 +1258,16 @@ test("regional lighting ownership, locality, pause invariance, and four-line sig
       }
       const greenwayRestored = sampleGreenway();
 
-      const fourLineSign = inspectSignAt(8.5, -10, 3.8, 2.4);
+      const fourLineSign = inspectSignAt(
+        8.5,
+        layouts.MERIDIAN_PLACEMENT.toWorldY(-10),
+        3.8,
+        2.4,
+      );
 
       return {
+        cameraFar: camera.far,
+        viewDistance: layouts.VIEW_DISTANCE,
         shadowCasterCount: shadowCasters.length,
         shadowCasterName: shadowCasters[0]?.name,
         surfacePointCount: surfacePointLights.length,
@@ -1090,7 +1287,11 @@ test("regional lighting ownership, locality, pause invariance, and four-line sig
       };
     });
 
-    // World lighting ownership
+    // Camera far plane and world lighting ownership
+    expect(result.viewDistance).toBeGreaterThan(
+      Math.hypot(LENGTH, RADIUS * 2),
+    );
+    expect(result.cameraFar).toBeCloseTo(VIEW_DISTANCE, 5);
     expect(result.shadowCasterCount).toBe(1);
     expect(result.shadowCasterName).toBe("habitat_sunlight");
     expect(result.surfacePointCount).toBe(6);
@@ -1121,6 +1322,591 @@ test("regional lighting ownership, locality, pause invariance, and four-line sig
     expect(result.fourLineSign.outerBleedPixels).toBe(0);
     expect(result.fourLineSign.innerMarginBleedPixels).toBe(0);
     expect(result.fourLineSign.glyphPixels).toBeGreaterThan(500);
+    expect(errors).toEqual([]);
+  } finally {
+    await context.close();
+  }
+});
+
+test("separated district geometry, colliders, job/service/lift targets, and live Nia/Mara anchors align in world space", async ({
+  browser,
+}) => {
+  const context = await browser.newContext();
+  try {
+    const page = await context.newPage();
+    const errors = [];
+    page.on("pageerror", (err) => errors.push(err.message));
+
+    await page.goto("/checks/world.html");
+    await page.waitForFunction(() => Boolean(window.__worldFixture));
+
+    const result = await page.evaluate(() => {
+      const f = window.__worldFixture;
+      const {
+        world,
+        player,
+        step,
+        render,
+        getCityLift,
+        layouts,
+        inspectTargetAlignment,
+        inspectResidentAnchors,
+        inspectSceneStructure,
+        inspectCarriedCargo,
+      } = f;
+
+      const settle = (count = 5) => {
+        let last;
+        for (let i = 0; i < count; i++) last = step(1 / 60);
+        return last;
+      };
+
+      const walkWithKey = (code, steps = 20) => {
+        window.dispatchEvent(new KeyboardEvent("keydown", { code }));
+        let last;
+        for (let i = 0; i < steps; i++) last = step(1 / 60);
+        window.dispatchEvent(new KeyboardEvent("keyup", { code }));
+        return last;
+      };
+
+      const structure = inspectSceneStructure();
+
+      // 1. Authored mesh + collider alignment across separated districts and subsystems
+      const alignments = {
+        deliveryPickup: inspectTargetAlignment({
+          s: layouts.DELIVERY_STATIONS.pickup.s,
+          y: layouts.DELIVERY_STATIONS.pickup.y,
+          base: 0,
+          height: 0.8,
+          width: 1.8,
+          depth: 1.0,
+          rootName: "delivery_stations",
+        }),
+        deliveryDropoff: inspectTargetAlignment({
+          s: layouts.DELIVERY_STATIONS.dropoff.s,
+          y: layouts.DELIVERY_STATIONS.dropoff.y,
+          base: 0,
+          height: 0.85,
+          width: 1.4,
+          depth: 0.8,
+          rootName: "delivery_stations",
+        }),
+        greenwayOverlook: inspectTargetAlignment({
+          s: -58,
+          y: layouts.DISTRICT_STOPS[2].y,
+          base: 0,
+          height: 2.16,
+          width: 16,
+          depth: 16,
+          rootName: "greenway_district",
+        }),
+        farmUtilityShed: inspectTargetAlignment({
+          s: 42,
+          y: layouts.GREENWAY_PLACEMENT.toWorldY(-135),
+          base: 0,
+          height: 5.2,
+          meshHeight: 3.8,
+          width: 8.5,
+          depth: 11.0,
+          rootName: "greenway_district",
+        }),
+        skyroomFloor: inspectTargetAlignment({
+          s: 48,
+          y: layouts.MAIN_LIFT.y,
+          base: layouts.TOWER.observationHeight - 0.4,
+          height: 0.4,
+          width: 24,
+          depth: 24,
+          rootName: "civic_tower_skyroom",
+        }),
+        ventilationUnit: inspectTargetAlignment({
+          s: layouts.VENTILATION_UNIT.s,
+          y: layouts.VENTILATION_UNIT.y,
+          base: layouts.VENTILATION_UNIT.height,
+          height: layouts.VENTILATION_UNIT.casingHeight,
+          width: layouts.VENTILATION_UNIT.width,
+          depth: layouts.VENTILATION_UNIT.depth,
+          rootName: "maintenance_quest",
+        }),
+        servicePavilionNorthWall: inspectTargetAlignment({
+          s: layouts.SERVICE_ACCESS.theta * layouts.RADIUS,
+          y: layouts.SERVICE_ACCESS.y + 2.4,
+          base: 0,
+          height: 3.4,
+          width: 5.2,
+          depth: 0.4,
+          rootName: "serviceSurfacePavilion",
+        }),
+        serviceCorridorWestWall: inspectTargetAlignment({
+          s: -17.9,
+          y: layouts.MERIDIAN_PLACEMENT.toWorldY(-18.5),
+          base: layouts.SERVICE_FLOOR - 0.6,
+          height: 8.0,
+          width: 0.8,
+          depth: 31.0,
+          rootName: "serviceUnderground",
+        }),
+      };
+
+      // 2. Greenway Delivery pickup/dropoff collision + interaction flow
+      const oldPickupView = world.delivery.getView({
+        theta: layouts.DELIVERY_STATIONS.pickup.s / layouts.RADIUS,
+        y: -240,
+        height: 0,
+        grounded: true,
+        traversalMode: "walk",
+      });
+
+      player.teleport({
+        theta: layouts.DELIVERY_STATIONS.pickup.s / layouts.RADIUS,
+        y: layouts.DELIVERY_STATIONS.pickup.y - 1.5,
+        height: 0,
+        yaw: 0,
+      });
+      let s = settle(2);
+      const carriedBefore = inspectCarriedCargo();
+      const pickupPrompt = world.delivery.getView(s).prompt;
+      s = walkWithKey("KeyW", 20);
+      const pickupBlockedY = s.y;
+      const pickupRes = world.delivery.interact(s);
+      const carryingView = world.delivery.getView(s);
+      render();
+      const carriedWhileCarrying = inspectCarriedCargo();
+
+      player.teleport({
+        theta: (layouts.DELIVERY_STATIONS.dropoff.s - 1.5) / layouts.RADIUS,
+        y: layouts.DELIVERY_STATIONS.dropoff.y,
+        height: 0,
+        yaw: Math.PI / 2,
+      });
+      s = settle(2);
+      const dropoffPrompt = world.delivery.getView(s).prompt;
+      s = walkWithKey("KeyW", 20);
+      const dropoffBlockedS = s.theta * layouts.RADIUS;
+      const dropoffRes = world.delivery.interact(s);
+      const completeDeliveryView = world.delivery.getView(s);
+      const carriedAfter = inspectCarriedCargo();
+      // 3. Greenway Overlook elevated floor support at relocated world Y
+      player.teleport({
+        theta: -58 / layouts.RADIUS,
+        y: layouts.DISTRICT_STOPS[2].y,
+        height: 2.2,
+      });
+      s = settle(6);
+      const overlookState = { height: s.height, grounded: s.grounded };
+
+      // 4. Relocated Mara Voss + Maintenance Ventilation Unit flow + altitude guard + collision
+      const oldMaraPrompt = world.maintenance.getView({
+        theta: layouts.CARETAKER.s / layouts.RADIUS,
+        y: -5,
+        height: 0,
+        grounded: true,
+        traversalMode: "walk",
+      }).prompt;
+
+      player.teleport({
+        theta: layouts.CARETAKER.s / layouts.RADIUS,
+        y: layouts.CARETAKER.y - 1.5,
+        height: 0,
+      });
+      s = settle(2);
+      const maraPrompt = world.maintenance.getView(s).prompt;
+      const maraAssignRes = world.maintenance.interact(s);
+      const assignedPhase = world.maintenance.getPhase();
+
+      const belowUnitInteract = world.maintenance.interact({
+        theta: layouts.VENTILATION_UNIT.s / layouts.RADIUS,
+        y: layouts.VENTILATION_UNIT.y - 1.5,
+        height: 0,
+        grounded: true,
+        traversalMode: "walk",
+      });
+
+      player.teleport({
+        theta: layouts.VENTILATION_UNIT.s / layouts.RADIUS,
+        y: layouts.VENTILATION_UNIT.y - 2.0,
+        height: layouts.SKYWALK_HEIGHT,
+        yaw: 0,
+      });
+      s = settle(4);
+      const skywalkSupport = { height: s.height, grounded: s.grounded };
+      s = walkWithKey("KeyW", 20);
+      const unitBlockedY = s.y;
+      const repairRes = world.maintenance.interact(s);
+      const repairedPhase = world.maintenance.getPhase();
+
+      player.teleport({
+        theta: layouts.CARETAKER.s / layouts.RADIUS,
+        y: layouts.CARETAKER.y - 1.5,
+        height: 0,
+      });
+      s = settle(2);
+      const maraCompleteRes = world.maintenance.interact(s);
+      const completePhase = world.maintenance.getPhase();
+
+      // 5. Meridian Service Level descent, wall collision, and service room floor support
+      player.teleport({
+        theta: layouts.SERVICE_ACCESS.theta,
+        y: layouts.SERVICE_ACCESS.y,
+        height: 0,
+      });
+      s = settle(2);
+      const serviceLift = getCityLift(s);
+      player.teleport(serviceLift.destination);
+      s = settle(4);
+      player.teleport({
+        theta: -14 / layouts.RADIUS,
+        y: layouts.MERIDIAN_PLACEMENT.toWorldY(-18.5),
+        height: layouts.SERVICE_FLOOR,
+        yaw: -Math.PI / 2,
+      });
+      s = settle(2);
+      s = walkWithKey("KeyW", 20);
+      const serviceWallBlockedS = s.theta * layouts.RADIUS;
+
+      const serviceRoomStates = layouts.SERVICE_STOPS.map((stop) => {
+        player.teleport({
+          theta: stop.theta,
+          y: stop.y,
+          height: layouts.SERVICE_FLOOR,
+        });
+        const settled = settle(4);
+        return {
+          id: stop.id,
+          height: settled.height,
+          grounded: settled.grounded,
+        };
+      });
+
+      // 6. Relocated Nia Sen & Mara Voss live world anchors + resident placement tracking
+      const residentsBefore = inspectResidentAnchors();
+      const niaBefore = residentsBefore.find((r) => r.id === "resident-square");
+      const maraAnchor = residentsBefore.find((r) => r.id === "caretaker-mara");
+
+      for (let i = 0; i < 8; i++) step(0.25);
+      const residentsAfter = inspectResidentAnchors();
+      const niaAfter = residentsAfter.find((r) => r.id === "resident-square");
+
+      const oldNiaReaction = world.residents.getReaction(
+        {
+          theta: 0,
+          y: -230,
+          height: 0,
+          grounded: true,
+          traversalMode: "walk",
+        },
+        "available",
+      );
+
+      player.teleport({
+        theta: niaAfter.sampleS / layouts.RADIUS,
+        y: niaAfter.sampleY - 1.5,
+        height: 0,
+      });
+      s = settle(2);
+      const niaAtReaction = inspectResidentAnchors().find(
+        (r) => r.id === "resident-square",
+      );
+      const liveNiaReaction = world.residents.getReaction(s, "available");
+      render();
+
+      return {
+        structure,
+        alignments,
+        delivery: {
+          oldPickupPrompt: oldPickupView.prompt,
+          pickupPrompt,
+          pickupBlockedY,
+          pickupTargetY: layouts.DELIVERY_STATIONS.pickup.y,
+          pickupPhase: pickupRes?.phase ?? null,
+          carryingPhase: carryingView.phase,
+          carryingInventory: carryingView.inventory,
+          carriedBefore,
+          carriedWhileCarrying,
+          carriedAfter,
+          dropoffPrompt,
+          dropoffBlockedS,
+          dropoffTargetS: layouts.DELIVERY_STATIONS.dropoff.s,
+          dropoffPhase: dropoffRes?.phase ?? null,
+          completePhase: completeDeliveryView.phase,
+        },
+        overlookState,
+        maintenance: {
+          oldMaraPrompt,
+          maraPrompt,
+          assignedChanged: Boolean(maraAssignRes?.changed),
+          assignedPhase,
+          belowUnitInteract,
+          skywalkSupport,
+          unitBlockedY,
+          unitSouthFaceY:
+            layouts.VENTILATION_UNIT.y - layouts.VENTILATION_UNIT.depth / 2,
+          repairedChanged: Boolean(repairRes?.changed),
+          repairedPhase,
+          completeChanged: Boolean(maraCompleteRes?.changed),
+          completePhase,
+        },
+        service: {
+          serviceWallBlockedS,
+          serviceRoomStates,
+        },
+        residents: {
+          residentsAfter,
+          niaBefore,
+          niaAfter,
+          niaAtReaction,
+          maraAnchor,
+          oldNiaReaction,
+          liveNiaPrompt: liveNiaReaction?.prompt ?? null,
+          liveNiaTargetY: liveNiaReaction?.target?.y ?? null,
+          liveNiaTargetS: liveNiaReaction?.target?.s ?? null,
+        },
+      };
+    });
+
+    // Scene group separation & global underside deck
+    expect(result.structure.inhabitedDistrictsY).toBe(0);
+    expect(result.structure.greenwayDistrictY).toBe(-220);
+    expect(result.structure.meridianDistrictY).toBe(455);
+    expect(result.structure.residentsY).toBe(0);
+    expect(result.structure.globalDeck).toEqual({
+      y: 0,
+      depth: LENGTH,
+      base: -0.6,
+      height: 0.6,
+    });
+
+    // Geometry + collider alignment at all inspected targets
+    for (const [name, entry] of Object.entries(result.alignments)) {
+      expect(entry.meshFound, `${name} mesh`).toBe(true);
+      expect(entry.colliderFound, `${name} collider`).toBe(true);
+      expect(entry.meshDistToExpected, `${name} mesh distance`).toBeLessThan(0.6);
+      expect(entry.collider.dist, `${name} collider distance`).toBeLessThan(0.1);
+      expect(
+        Math.abs(entry.meshBox.centerY - entry.collider.y),
+        `${name} world Y alignment`,
+      ).toBeLessThan(0.2);
+    }
+
+    // Delivery alignment, blocking, and full flow
+    expect(result.delivery.oldPickupPrompt).toBeNull();
+    expect(result.delivery.pickupPrompt).toBe("Pick up seed crate");
+    expect(result.delivery.pickupBlockedY).toBeLessThan(
+      result.delivery.pickupTargetY - 0.4,
+    );
+    expect(result.delivery.pickupPhase).toBe("carrying");
+    expect(result.delivery.carryingPhase).toBe("carrying");
+    expect(result.delivery.carryingInventory).toBe("Heritage seed crate");
+    expect(result.delivery.carriedBefore).toMatchObject({
+      found: true,
+      visible: false,
+    });
+    expect(result.delivery.carriedWhileCarrying).toMatchObject({
+      found: true,
+      visible: true,
+    });
+    expect(result.delivery.carriedAfter).toMatchObject({
+      found: true,
+      visible: false,
+    });
+    expect(result.delivery.dropoffPrompt).toBe("Deliver seed crate");
+    expect(result.delivery.dropoffBlockedS).toBeLessThan(
+      result.delivery.dropoffTargetS - 0.4,
+    );
+    expect(result.delivery.dropoffPhase).toBe("complete");
+    expect(result.delivery.completePhase).toBe("complete");
+    // Overlook deck support
+    expect(result.overlookState.grounded).toBe(true);
+    expect(Math.abs(result.overlookState.height - 2.16)).toBeLessThan(0.05);
+
+    // Maintenance flow, altitude guard, and unit collision
+    expect(result.maintenance.oldMaraPrompt).toBeNull();
+    expect(result.maintenance.maraPrompt).toBe("Speak with Mara Voss");
+    expect(result.maintenance.assignedChanged).toBe(true);
+    expect(result.maintenance.assignedPhase).toBe("assigned");
+    expect(result.maintenance.belowUnitInteract).toBeNull();
+    expect(result.maintenance.skywalkSupport.grounded).toBe(true);
+    expect(
+      Math.abs(result.maintenance.skywalkSupport.height - 9),
+    ).toBeLessThan(0.05);
+    expect(result.maintenance.unitBlockedY).toBeLessThan(
+      result.maintenance.unitSouthFaceY,
+    );
+    expect(result.maintenance.repairedChanged).toBe(true);
+    expect(result.maintenance.repairedPhase).toBe("repaired");
+    expect(result.maintenance.completeChanged).toBe(true);
+    expect(result.maintenance.completePhase).toBe("complete");
+
+    // Service level wall collision & room floor support
+    expect(result.service.serviceWallBlockedS).toBeGreaterThan(-17.5);
+    for (const room of result.service.serviceRoomStates) {
+      expect(room.grounded, `${room.id} grounded`).toBe(true);
+      expect(room.height, `${room.id} height`).toBe(-8);
+    }
+
+    // Relocated Nia Sen & Mara Voss live world anchors and all resident world tracking
+    expect(result.residents.maraAnchor.sampleS).toBe(-8);
+    expect(result.residents.maraAnchor.sampleY).toBe(450);
+    expect(result.residents.maraAnchor.worldDist).toBeLessThan(0.1);
+
+    expect(result.residents.niaBefore.worldDist).toBeLessThan(0.1);
+    expect(result.residents.niaAfter.worldDist).toBeLessThan(0.1);
+    expect(result.residents.niaAtReaction.worldDist).toBeLessThan(0.1);
+    expect(
+      result.residents.niaBefore.sampleS !== result.residents.niaAfter.sampleS ||
+        result.residents.niaBefore.sampleY !== result.residents.niaAfter.sampleY,
+    ).toBe(true);
+    expect(result.residents.niaAfter.sampleY).toBeGreaterThanOrEqual(
+      DISTRICT_STOPS[0].y - 10,
+    );
+    expect(result.residents.niaAfter.sampleY).toBeLessThanOrEqual(
+      DISTRICT_STOPS[0].y + 7,
+    );
+    expect(result.residents.oldNiaReaction).toBeNull();
+    expect(result.residents.liveNiaPrompt).toBe("Speak with Nia Sen");
+    expect(result.residents.liveNiaTargetS).toBeCloseTo(
+      result.residents.niaAtReaction.sampleS,
+      5,
+    );
+    expect(result.residents.liveNiaTargetY).toBeCloseTo(
+      result.residents.niaAtReaction.sampleY,
+      5,
+    );
+    for (const res of result.residents.residentsAfter) {
+      expect(res.worldDist, `${res.id} world tracking`).toBeLessThan(0.1);
+      const inGreenway =
+        res.sampleY >= DISTRICT_BOUNDS.minY &&
+        res.sampleY <= DISTRICT_BOUNDS.maxY;
+      const inMeridian =
+        res.sampleY >= CITY_BOUNDS.minY && res.sampleY <= CITY_BOUNDS.maxY;
+      expect(
+        inGreenway || inMeridian,
+        `${res.id} sampleY=${res.sampleY} within a district`,
+      ).toBe(true);
+    }
+
+    expect(errors).toEqual([]);
+  } finally {
+    await context.close();
+  }
+});
+
+test("expanded Greenway and Meridian routes and telemetry work through native app controls without seeded progress", async ({
+  browser,
+}) => {
+  // Combined native Greenway (70 m + pickup) and Meridian (61 m) walks under software GPU.
+  test.setTimeout(180_000);
+  const context = await browser.newContext({
+    viewport: { width: 800, height: 600 },
+  });
+  try {
+    const page = await context.newPage();
+    const errors = [];
+    page.on("pageerror", (err) => errors.push(err.message));
+
+    await page.goto("/");
+    await expect(page.locator("#start-greenway")).toBeEnabled();
+
+    await test.step("Spawn in Greenway approach, verify 1g surface telemetry, and collect seed crate", async () => {
+      await page.locator("#start-greenway").click();
+      await expect(page.locator("#pause")).toBeVisible();
+      await expect(page.locator("#gravity")).toHaveText("1.000 G");
+      await expect(page.locator("#area")).toHaveText("OUTER PROMENADE");
+
+      const spawnLongM = Math.round(SPAWN.y + LENGTH / 2);
+      await expect(page.locator("#position")).toContainText(`${spawnLongM} m`);
+
+      const greenwayEntryM = Math.ceil(DISTRICT_BOUNDS.minY + LENGTH / 2);
+      const pickupLongM = Math.round(DELIVERY_STATIONS.pickup.y + LENGTH / 2);
+      await page.keyboard.down("ShiftLeft");
+      await page.keyboard.down("KeyW");
+      await page.waitForFunction(
+        (entryM) => {
+          const area = document.getElementById("area")?.textContent || "";
+          const pos = document.getElementById("position")?.textContent || "";
+          const match = pos.match(/\/\s*(\d+)\s*m$/);
+          return (
+            area === "GREENWAY COMMONS" &&
+            match &&
+            Number(match[1]) >= entryM
+          );
+        },
+        greenwayEntryM,
+        { timeout: 60_000 },
+      );
+      await expect(page.locator("#area")).toHaveText("GREENWAY COMMONS");
+
+      await page.waitForFunction(
+        (targetM) => {
+          const pos = document.getElementById("position")?.textContent || "";
+          const match = pos.match(/\/\s*(\d+)\s*m$/);
+          return match && Number(match[1]) >= targetM;
+        },
+        pickupLongM - 12,
+        { timeout: 60_000 },
+      );
+      await page.keyboard.up("ShiftLeft");
+
+      await page.waitForFunction(
+        (targetM) => {
+          const pos = document.getElementById("position")?.textContent || "";
+          const match = pos.match(/\/\s*(\d+)\s*m$/);
+          return match && Number(match[1]) >= targetM;
+        },
+        pickupLongM,
+        { timeout: 60_000 },
+      );
+      await page.keyboard.up("KeyW");
+
+      await page.keyboard.down("KeyD");
+      await page.waitForFunction(
+        () => {
+          const box = document.getElementById("interaction");
+          const label = document.getElementById("interaction-label");
+          return (
+            box &&
+            !box.hidden &&
+            label &&
+            label.textContent.includes("Pick up seed crate")
+          );
+        },
+        null,
+        { timeout: 60_000 },
+      );
+      await page.keyboard.up("KeyD");
+
+      await page.keyboard.press("KeyE");
+      await expect(page.locator("#inventory")).toBeVisible();
+      await expect(page.locator("#inventory-label")).toHaveText(
+        "Heritage seed crate",
+      );
+      await expect(page.locator("#job")).toHaveAttribute(
+        "data-phase",
+        "carrying",
+      );
+    });
+
+    await test.step("Travel to Meridian via pause menu and sprint into Meridian plaza", async () => {
+      await page.keyboard.press("Escape");
+      await expect(page.locator("#pause-panel")).toBeVisible();
+      await page.locator("#visit-city").click();
+      await expect(page.locator("#pause-panel")).toBeHidden();
+      await expect(page.locator("#gravity")).toHaveText("1.000 G");
+      await expect(page.locator("#area")).toHaveText("MERIDIAN CIVIC DISTRICT");
+
+      const cityLongM = Math.round(CITY_ARRIVAL.y + LENGTH / 2);
+      await expect(page.locator("#position")).toContainText(`${cityLongM} m`);
+
+      await page.keyboard.down("ShiftLeft");
+      await page.keyboard.down("KeyW");
+      const plazaRow = page.locator("#landmarks li", {
+        hasText: CITY_STOPS[0].name,
+      });
+      await expect(plazaRow).toHaveClass(/found/, { timeout: 90_000 });
+      await page.keyboard.up("KeyW");
+      await page.keyboard.up("ShiftLeft");
+    });
+
     expect(errors).toEqual([]);
   } finally {
     await context.close();

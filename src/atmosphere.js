@@ -1,5 +1,5 @@
 import * as THREE from "three";
-import { RADIUS } from "./habitat.js";
+import { RADIUS, LENGTH, GREENWAY_PLACEMENT } from "./habitat.js";
 import { surfacePos } from "./surface.js";
 import { inDistrict } from "./district-layout.js";
 import { inCity } from "./city-layout.js";
@@ -168,7 +168,7 @@ function isMaterialExcludedFromCasting(mat) {
 export function applyAtmosphere(scene, district, terrain, obstacles) {
   // 2. Atmospheric Distance Haze & Skybox
   const HAZE_COLOR = 0x6d929b;
-  const HAZE_DENSITY = 0.0017;
+  const HAZE_DENSITY = 0.0017 * (900 / LENGTH);
   scene.fog = new THREE.FogExp2(HAZE_COLOR, HAZE_DENSITY);
   scene.background = new THREE.Color(HAZE_COLOR);
 
@@ -178,22 +178,22 @@ export function applyAtmosphere(scene, district, terrain, obstacles) {
 
   const sunTarget = new THREE.Object3D();
   sunTarget.name = "habitat_sunlight_target";
-  sunTarget.position.set(22, -80, -160);
+  sunTarget.position.set(20, 40, -340);
   scene.add(sunTarget);
   sunLight.target = sunTarget;
 
-  sunLight.position.set(12, 11, 115);
+  sunLight.position.set(0, 222, 210);
   sunLight.castShadow = true;
   sunLight.shadow.mapSize.width = 2048;
   sunLight.shadow.mapSize.height = 2048;
 
-  // Covers both authored neighborhoods and Meridian's 60 m landmark.
-  sunLight.shadow.camera.left = -160;
-  sunLight.shadow.camera.right = 160;
-  sunLight.shadow.camera.top = 250;
-  sunLight.shadow.camera.bottom = -250;
-  sunLight.shadow.camera.near = 90;
-  sunLight.shadow.camera.far = 550;
+  // Covers both relocated authored neighborhoods and Meridian's 60 m landmark.
+  sunLight.shadow.camera.left = -165;
+  sunLight.shadow.camera.right = 165;
+  sunLight.shadow.camera.top = 580;
+  sunLight.shadow.camera.bottom = -580;
+  sunLight.shadow.camera.near = 250;
+  sunLight.shadow.camera.far = 900;
 
   sunLight.shadow.bias = -0.0005;
   sunLight.shadow.normalBias = 0.04;
@@ -216,31 +216,38 @@ export function applyAtmosphere(scene, district, terrain, obstacles) {
   // PointLight 1: Greenhouse South planter beds
   const lightGreenhouseSouth = new THREE.PointLight(0xffd294, 18, 15.0, 2);
   lightGreenhouseSouth.name = "point_greenhouse_south";
-  lightGreenhouseSouth.position.copy(surfacePos(64 / RADIUS, -223, 3.8));
+  lightGreenhouseSouth.position.copy(
+    surfacePos(64 / RADIUS, GREENWAY_PLACEMENT.toWorldY(-223), 3.8),
+  );
   lightGreenhouseSouth.castShadow = false;
   scene.add(lightGreenhouseSouth);
 
   // PointLight 2: Greenhouse North planter beds
   const lightGreenhouseNorth = new THREE.PointLight(0xffd294, 18, 15.0, 2);
   lightGreenhouseNorth.name = "point_greenhouse_north";
-  lightGreenhouseNorth.position.copy(surfacePos(64 / RADIUS, -205, 3.8));
+  lightGreenhouseNorth.position.copy(
+    surfacePos(64 / RADIUS, GREENWAY_PLACEMENT.toWorldY(-205), 3.8),
+  );
   lightGreenhouseNorth.castShadow = false;
   scene.add(lightGreenhouseNorth);
 
   // PointLight 3: Village Square center lantern
   const lightSquare = new THREE.PointLight(0xffdc9e, 12, 16.0, 2);
   lightSquare.name = "point_square_market";
-  lightSquare.position.copy(surfacePos(0 / RADIUS, -230, 3.2));
+  lightSquare.position.copy(
+    surfacePos(0 / RADIUS, GREENWAY_PLACEMENT.toWorldY(-230), 3.2),
+  );
   lightSquare.castShadow = false;
   scene.add(lightSquare);
 
   // PointLight 4: Promenade / Bakery & Cafe storefront
   const lightBakery = new THREE.PointLight(0xffdc9e, 12, 15.0, 2);
   lightBakery.name = "point_promenade_bakery";
-  lightBakery.position.copy(surfacePos(-8.5 / RADIUS, -268, 3.0));
+  lightBakery.position.copy(
+    surfacePos(-8.5 / RADIUS, GREENWAY_PLACEMENT.toWorldY(-268), 3.0),
+  );
   lightBakery.castShadow = false;
   scene.add(lightBakery);
-
   // 6. Contact Shading Footprint Textures & Materials
   const buildingFootprintTexture = createBuildingFootprintTexture();
   const buildingFootprintMat = new THREE.MeshBasicMaterial({
@@ -291,11 +298,13 @@ export function applyAtmosphere(scene, district, terrain, obstacles) {
   // 8. Add Soft Contact Footprint Under Each Resident Root
   // Attached directly to resident root: moves with root position, not body gait
   const residentsGroup = district.getObjectByName("residents");
-  for (const root of residentsGroup.children) {
-    const shadow = new THREE.Mesh(residentFootprintGeo, residentFootprintMat);
-    shadow.name = "resident_footprint";
-    shadow.position.set(0, 0, 0.035);
-    root.add(shadow);
+  if (residentsGroup) {
+    for (const root of residentsGroup.children) {
+      const shadow = new THREE.Mesh(residentFootprintGeo, residentFootprintMat);
+      shadow.name = "resident_footprint";
+      shadow.position.set(0, 0, 0.035);
+      root.add(shadow);
+    }
   }
 
   // 9. Configure Static Shadow Casters & Receivers

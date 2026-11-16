@@ -5,6 +5,7 @@ import { createMaintenanceState } from "../src/maintenance-state.js";
 import { createMaintenance } from "../src/maintenance.js";
 import { CARETAKER, VENTILATION_UNIT } from "../src/maintenance-layout.js";
 import { RADIUS } from "../src/habitat.js";
+import { inCity } from "../src/city-layout.js";
 
 const MARA_PLAYER = Object.freeze({
   theta: CARETAKER.s / RADIUS,
@@ -206,4 +207,28 @@ test("restoring repair and completion preserves a running green unit", () => {
   assert.ok(
     restoredIndicator.material.color.g > restoredIndicator.material.color.r,
   );
+});
+
+test("relocation rejects old Meridian coordinates and keeps collider and rig aligned with world unit", () => {
+  assert.ok(inCity(CARETAKER.s, CARETAKER.y));
+  assert.ok(inCity(VENTILATION_UNIT.s, VENTILATION_UNIT.y));
+  assert.ok(VENTILATION_UNIT.y > 450, "Skywalk ventilation unit moved beyond old +450m bound");
+
+  const oldMara = { ...MARA_PLAYER, y: -5 };
+  const oldUnit = { ...UNIT_PLAYER, y: 77.5 };
+  for (const phase of ["available", "assigned", "repaired"]) {
+    const state = createMaintenanceState(phase);
+    assert.equal(state.getView(oldMara).prompt, null);
+    assert.equal(state.interact(oldMara), null);
+    assert.equal(state.getView(oldUnit).prompt, null);
+    assert.equal(state.interact(oldUnit), null);
+  }
+
+  const scene = new Scene();
+  const maintenance = createMaintenance(scene);
+  assert.equal(maintenance.obstacles.length, 1);
+  assert.equal(maintenance.obstacles[0].y, VENTILATION_UNIT.y);
+  const rig = scene.getObjectByName("ventilation_rig");
+  assert.ok(rig);
+  assert.ok(Math.abs(rig.position.y - VENTILATION_UNIT.y) < 1e-6);
 });

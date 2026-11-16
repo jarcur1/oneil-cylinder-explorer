@@ -116,6 +116,68 @@ export function createPlayer(camera, domElement, options = {}) {
   let grounded = true;
   let enabled = false;
   let activeConstraint = null;
+  let activeRide = null;
+  const _rideScratch = {
+    theta: NaN,
+    y: NaN,
+    height: NaN,
+    speed: NaN,
+  };
+
+  function sampleRide(provider) {
+    if (
+      !provider ||
+      typeof provider !== "object" ||
+      typeof provider.getPose !== "function"
+    ) {
+      throw new Error(
+        "Invalid ride provider: must be an object with a getPose method",
+      );
+    }
+
+    _rideScratch.theta = NaN;
+    _rideScratch.y = NaN;
+    _rideScratch.height = NaN;
+    _rideScratch.speed = NaN;
+
+    provider.getPose(_rideScratch);
+
+    const nextTheta = _rideScratch.theta;
+    const nextY = _rideScratch.y;
+    const nextHeight = _rideScratch.height;
+    const nextSpeed = _rideScratch.speed;
+
+    if (
+      !Number.isFinite(nextTheta) ||
+      !Number.isFinite(nextY) ||
+      !Number.isFinite(nextHeight) ||
+      !Number.isFinite(nextSpeed)
+    ) {
+      throw new Error(
+        "Invalid ride pose: theta, y, height, and speed must be finite numbers",
+      );
+    }
+
+    if (nextY < MIN_Y || nextY > MAX_Y) {
+      throw new Error(
+        `Invalid ride y ${nextY}: out of range [${MIN_Y}, ${MAX_Y}]`,
+      );
+    }
+
+    const minAllowedH = groundHeight;
+    const maxAllowedH = RADIUS - EYE_HEIGHT - 1;
+    if (nextHeight < minAllowedH || nextHeight > maxAllowedH) {
+      throw new Error(
+        `Invalid ride height ${nextHeight}: out of range [${minAllowedH}, ${maxAllowedH}]`,
+      );
+    }
+
+    if (nextSpeed < 0) {
+      throw new Error(
+        `Invalid ride speed ${nextSpeed}: must be non-negative`,
+      );
+    }
+  }
 
   function clampPose() {
     if (activeConstraint) {
@@ -158,13 +220,17 @@ export function createPlayer(camera, domElement, options = {}) {
     lookDown: false,
   };
 
-  function clearInput() {
+  function clearMovementInput() {
     keys.forward = false;
     keys.backward = false;
     keys.left = false;
     keys.right = false;
     keys.sprint = false;
     keys.jump = false;
+  }
+
+  function clearInput() {
+    clearMovementInput();
     keys.lookLeft = false;
     keys.lookRight = false;
     keys.lookUp = false;
@@ -477,6 +543,30 @@ export function createPlayer(camera, domElement, options = {}) {
   function update(dt) {
     const clampedDt = Math.max(0, Math.min(dt || 0, MAX_DELTA));
 
+    if (activeRide) {
+      sampleRide(activeRide);
+
+      if (enabled) {
+        if (clampedDt > 0) {
+          if (keys.lookLeft) yaw -= KEY_LOOK_SPEED * clampedDt;
+          if (keys.lookRight) yaw += KEY_LOOK_SPEED * clampedDt;
+          if (keys.lookUp) pitch += KEY_LOOK_SPEED * clampedDt;
+          if (keys.lookDown) pitch -= KEY_LOOK_SPEED * clampedDt;
+        }
+        pitch = Math.max(-MAX_PITCH, Math.min(MAX_PITCH, pitch));
+        yaw = wrapTheta(yaw);
+      }
+
+      theta = wrapTheta(_rideScratch.theta);
+      y = _rideScratch.y;
+      h = _rideScratch.height;
+      speed = _rideScratch.speed === 0 ? 0 : _rideScratch.speed;
+      velH = 0;
+      grounded = true;
+      updateCamera();
+      return;
+    }
+
     if (enabled && clampedDt > 0) {
       if (keys.lookLeft) yaw -= KEY_LOOK_SPEED * clampedDt;
       if (keys.lookRight) yaw += KEY_LOOK_SPEED * clampedDt;
@@ -580,17 +670,55 @@ export function createPlayer(camera, domElement, options = {}) {
     updateCamera();
   }
 
+  function attachRide(provider) {
+    sampleRide(provider);
+
+    activeRide = provider;
+    activeConstraint = null;
+    theta = wrapTheta(_rideScratch.theta);
+    y = _rideScratch.y;
+    h = _rideScratch.height;
+    speed = _rideScratch.speed === 0 ? 0 : _rideScratch.speed;
+    velH = 0;
+    grounded = true;
+    clearMovementInput();
+    updateCamera();
+  }
+
   function teleport(pose) {
+    if (!pose || typeof pose !== "object") {
+      throw new Error("Invalid teleport pose: must be a non-null object");
+    }
+
     let nextConstraint = null;
     if (pose.constraint != null) {
       validateConstraint(pose.constraint, groundHeight);
       nextConstraint = pose.constraint;
     }
 
+    const nextTheta = pose.theta;
+    const nextY = pose.y;
+    const nextHeight = pose.height;
+    const nextYaw = pose.yaw;
+
+    if (
+      !Number.isFinite(nextTheta) ||
+      !Number.isFinite(nextY) ||
+      (nextConstraint
+        ? nextHeight !== undefined && !Number.isFinite(nextHeight)
+        : !Number.isFinite(nextHeight)) ||
+      (nextYaw !== undefined && !Number.isFinite(nextYaw))
+    ) {
+      throw new Error(
+        "Invalid teleport pose: coordinates and yaw must be finite numbers",
+      );
+    }
+
+    activeRide = null;
     activeConstraint = nextConstraint;
-    theta = wrapTheta(pose.theta);
-    y = pose.y;
-    yaw = pose.yaw ?? 0;
+    theta = wrapTheta(nextTheta);
+    y = nextY;
+    yaw = nextYaw ?? 0;
     pitch = 0;
     speed = 0;
     velH = 0;
@@ -601,7 +729,7 @@ export function createPlayer(camera, domElement, options = {}) {
     } else {
       h = Math.max(
         groundHeight,
-        Math.min(RADIUS - EYE_HEIGHT - 1, pose.height),
+        Math.min(RADIUS - EYE_HEIGHT - 1, nextHeight),
       );
     }
 
@@ -647,11 +775,15 @@ export function createPlayer(camera, domElement, options = {}) {
     target.grounded = grounded;
     target.locked = document.pointerLockElement === domElement;
     target.gravity = gravityAtHeight(h);
-    target.traversalMode = activeConstraint ? activeConstraint.mode : "walk";
+    target.traversalMode = activeRide
+      ? "tram"
+      : activeConstraint
+        ? activeConstraint.mode
+        : "walk";
     target.railDirection =
-      activeConstraint && activeConstraint.mode === "trolley"
-        ? activeConstraint.direction
-        : 0;
+      activeRide || !activeConstraint || activeConstraint.mode !== "trolley"
+        ? 0
+        : activeConstraint.direction;
     return target;
   }
 
@@ -676,6 +808,7 @@ export function createPlayer(camera, domElement, options = {}) {
     update,
     reset,
     teleport,
+    attachRide,
     requestLock,
     setEnabled,
     getState,

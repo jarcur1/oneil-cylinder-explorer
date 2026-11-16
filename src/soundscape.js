@@ -1,4 +1,8 @@
-import { RADIUS } from "./habitat.js";
+import {
+  RADIUS,
+  GREENWAY_PLACEMENT,
+  MERIDIAN_PLACEMENT,
+} from "./habitat.js";
 import { wrappedDeltaTheta } from "./cylinder-math.js";
 import { inServiceLevel } from "./service-layout.js";
 
@@ -544,21 +548,23 @@ export function createSoundscape({ muted = false } = {}) {
       playerY,
       playerHeight,
     );
+    const greenwayY = GREENWAY_PLACEMENT.toLocalY(playerY);
+    const meridianY = MERIDIAN_PLACEMENT.toLocalY(playerY);
     const servicePumpDistance = inService
       ? Math.hypot(
           wrappedDeltaTheta(playerTheta, -27 / RADIUS) * (RADIUS - playerHeight),
-          playerY - 6,
+          meridianY - 6,
         )
       : Infinity;
 
-    // 1. Canal distance (s = 109.5, y in [-274, -145])
+    // 1. Canal distance (s = 109.5, local y in [-274, -145])
     const dArcCanal =
       Math.abs(wrappedDeltaTheta(playerTheta, CANAL_THETA)) * RADIUS;
     let dYCanal = 0;
-    if (playerY < -274.0) {
-      dYCanal = -274.0 - playerY;
-    } else if (playerY > -145.0) {
-      dYCanal = playerY - -145.0;
+    if (greenwayY < -274.0) {
+      dYCanal = -274.0 - greenwayY;
+    } else if (greenwayY > -145.0) {
+      dYCanal = greenwayY - -145.0;
     }
     const distCanal = Math.hypot(dArcCanal, dYCanal);
     const maxWaterDist = 36.0;
@@ -572,10 +578,10 @@ export function createSoundscape({ muted = false } = {}) {
       waterGain.gain.setTargetAtTime(targetWaterGain, now, 0.09);
     }
 
-    // 2. Pump distance (s = 43.5, y = -146.0)
+    // 2. Pump distance (s = 43.5, local y = -146.0)
     const dArcPump =
       Math.abs(wrappedDeltaTheta(playerTheta, PUMP_THETA)) * RADIUS;
-    const dYPump = playerY - -146.0;
+    const dYPump = greenwayY - -146.0;
     const distPump = Math.hypot(dArcPump, dYPump);
     const maxPumpDist = 26.0;
     const pumpFactor =
@@ -590,13 +596,17 @@ export function createSoundscape({ muted = false } = {}) {
       pumpGain.gain.setTargetAtTime(targetPumpGain, now, 0.09);
     }
 
-    // 3. Greenhouse dampening (s in [53, 75], y in [-232, -196])
+    // 3. Greenhouse dampening (s in [53, 75], local y in [-232, -196])
     const dArcGH =
       Math.abs(wrappedDeltaTheta(playerTheta, GREENHOUSE_THETA)) * RADIUS;
     isInsideGreenhouse =
-      dArcGH <= 11.0 && playerY >= -232.0 && playerY <= -196.0;
+      dArcGH <= 11.0 && greenwayY >= -232.0 && greenwayY <= -196.0;
 
-    const damped = isInsideGreenhouse || inService || inAxial;
+    const damped =
+      isInsideGreenhouse ||
+      inService ||
+      inAxial ||
+      traversalMode === "tram";
     const targetWindGain = damped ? WIND_DAMPED_GAIN : WIND_BASE_GAIN;
     const targetWindCutoff = damped ? 220 : 450;
 
@@ -786,37 +796,43 @@ export function createSoundscape({ muted = false } = {}) {
         updateSpatial(theta, y, height, traversalMode);
       }
 
-      // Landing detection
-      if (!grounded) {
-        airborneTime += clampedDt;
-      } else {
-        if (!wasGrounded && airborneTime > 0.22) {
-          playLandingStep(isInsideGreenhouse);
-          stepTimer = 0;
-        }
+      if (traversalMode === "tram") {
+        stepTimer = 0;
         airborneTime = 0;
-      }
-      wasGrounded = grounded;
-
-      // Footstep cadence
-      if (grounded && speed > 0.5 && traversalMode !== "trolley") {
-        let interval;
-        if (speed <= 7.0) {
-          const f = (speed - 0.5) / 6.5;
-          interval = 0.5 - f * 0.08; // 0.50s down to 0.42s
-        } else {
-          const f = Math.min(1.0, (speed - 7.0) / 11.0);
-          interval = 0.42 - f * 0.16; // 0.42s down to 0.26s
-        }
-
-        stepTimer += clampedDt;
-        if (stepTimer >= interval) {
-          stepTimer = 0;
-          playFootstep(speed > 10.0, isInsideGreenhouse);
-        }
+        wasGrounded = true;
       } else {
-        // Standing or blocked: prime stepTimer so moving triggers step naturally without burst
-        stepTimer = 0.3;
+        // Landing detection
+        if (!grounded) {
+          airborneTime += clampedDt;
+        } else {
+          if (!wasGrounded && airborneTime > 0.22) {
+            playLandingStep(isInsideGreenhouse);
+            stepTimer = 0;
+          }
+          airborneTime = 0;
+        }
+        wasGrounded = grounded;
+
+        // Footstep cadence
+        if (grounded && speed > 0.5 && traversalMode !== "trolley") {
+          let interval;
+          if (speed <= 7.0) {
+            const f = (speed - 0.5) / 6.5;
+            interval = 0.5 - f * 0.08; // 0.50s down to 0.42s
+          } else {
+            const f = Math.min(1.0, (speed - 7.0) / 11.0);
+            interval = 0.42 - f * 0.16; // 0.42s down to 0.26s
+          }
+
+          stepTimer += clampedDt;
+          if (stepTimer >= interval) {
+            stepTimer = 0;
+            playFootstep(speed > 10.0, isInsideGreenhouse);
+          }
+        } else {
+          // Standing or blocked: prime stepTimer so moving triggers step naturally without burst
+          stepTimer = 0.3;
+        }
       }
     } catch (err) {
       void failUnavailable(err);

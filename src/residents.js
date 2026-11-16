@@ -1,5 +1,9 @@
 import * as THREE from "three";
-import { RADIUS } from "./habitat.js";
+import {
+  RADIUS,
+  GREENWAY_PLACEMENT,
+  MERIDIAN_PLACEMENT,
+} from "./habitat.js";
 import { wrappedDeltaTheta, horizontalDistance } from "./cylinder-math.js";
 import { CARETAKER } from "./maintenance-layout.js";
 
@@ -539,7 +543,7 @@ function buildPath(points, height = 0) {
   };
 }
 
-function samplePath(path, dist, out) {
+function samplePath(path, dist, out, placement = null) {
   const { segments, perimeter } = path;
   let d = dist % perimeter;
   if (d < 0) d += perimeter;
@@ -560,9 +564,9 @@ function samplePath(path, dist, out) {
 
   const seg = segments[segIdx];
   const t = (d - seg.cumDist) / seg.len;
+  const localY = seg.y0 + seg.dy * t;
   out.s = seg.s0 + seg.ds * t;
-  out.y = seg.y0 + seg.dy * t;
-
+  out.y = placement ? placement.toWorldY(localY) : localY;
   // Continuous analytic heading interpolation
   const dHeading = wrappedDeltaTheta(seg.heading1, seg.heading0);
   out.heading = seg.heading0 + dHeading * t;
@@ -584,9 +588,15 @@ function isDistanceCrossed(d0, d1, target, perimeter) {
 // -----------------------------------------------------------------------------
 // Route Specifications & Inspectable Data
 // -----------------------------------------------------------------------------
+const DISTRICT_PLACEMENTS = Object.freeze({
+  greenway: GREENWAY_PLACEMENT,
+  meridian: MERIDIAN_PLACEMENT,
+});
+
 const RESIDENT_ROUTES = Object.freeze({
   // Original Greenway Routes (Unchanged)
   promenade: {
+    district: "greenway",
     name: "Promenade Stroll",
     height: 0,
     bounds: { minS: -2.5, maxS: -1.0, minY: -282.0, maxY: -249.0 },
@@ -597,6 +607,7 @@ const RESIDENT_ROUTES = Object.freeze({
     ),
   },
   square: {
+    district: "greenway",
     name: "Market Square Loop",
     height: 0,
     bounds: { minS: -2.0, maxS: 2.0, minY: -240.0, maxY: -223.0 },
@@ -607,6 +618,7 @@ const RESIDENT_ROUTES = Object.freeze({
     ),
   },
   glasshouse: {
+    district: "greenway",
     name: "Glasshouse Central Aisle",
     height: 0,
     bounds: { minS: 63.4, maxS: 64.6, minY: -243.0, maxY: -181.0 },
@@ -617,6 +629,7 @@ const RESIDENT_ROUTES = Object.freeze({
     ),
   },
   orchard: {
+    district: "greenway",
     name: "Orchard Crosslane",
     height: 0,
     bounds: { minS: -57.0, maxS: -3.0, minY: -174.6, maxY: -173.4 },
@@ -627,6 +640,7 @@ const RESIDENT_ROUTES = Object.freeze({
     ),
   },
   canal: {
+    district: "greenway",
     name: "Canal Bank Footpath",
     height: 0,
     bounds: { minS: 106.0, maxS: 106.8, minY: -235.0, maxY: -184.0 },
@@ -639,6 +653,7 @@ const RESIDENT_ROUTES = Object.freeze({
 
   // City Walking Routes
   plaza: {
+    district: "meridian",
     name: "Meridian Plaza Loop",
     height: 0,
     bounds: { minS: -10.0, maxS: -6.0, minY: -17.0, maxY: 5.0 },
@@ -650,6 +665,7 @@ const RESIDENT_ROUTES = Object.freeze({
     ),
   },
   lobby: {
+    district: "meridian",
     name: "Civic Tower Lobby Walk",
     height: 0,
     bounds: { minS: 47.6, maxS: 53.0, minY: 15.2, maxY: 32.0 },
@@ -658,6 +674,7 @@ const RESIDENT_ROUTES = Object.freeze({
     path: buildPath(createLobbyPoints(), 0),
   },
   skywalk: {
+    district: "meridian",
     name: "Skywalk Viewing Terrace",
     height: 9,
     bounds: { minS: -22.0, maxS: -5.0, minY: 64.0, maxY: 65.7 },
@@ -669,6 +686,7 @@ const RESIDENT_ROUTES = Object.freeze({
     ),
   },
   skyroom: {
+    district: "meridian",
     name: "Skyroom Observation Lounge",
     height: 42,
     bounds: { minS: 52.0, maxS: 56.5, minY: 29.0, maxY: 40.0 },
@@ -851,6 +869,7 @@ const RESIDENT_CONFIGS = [
     name: CARETAKER.name,
     role: CARETAKER.role,
     static: true,
+    district: "meridian",
     s: CARETAKER.s,
     y: CARETAKER.y,
     height: CARETAKER.height,
@@ -1034,6 +1053,9 @@ function buildResident(cfg, residentsGroup) {
     cfg.height !== undefined
       ? cfg.height
       : RESIDENT_ROUTES[cfg.routeKey]?.height || 0;
+  root.userData.district = cfg.static
+    ? cfg.district || "meridian"
+    : RESIDENT_ROUTES[cfg.routeKey]?.district || null;
   residentsGroup.add(root);
 
   // Heading rotates around local Z (surface normal) to face motion direction
@@ -1198,6 +1220,8 @@ function buildResident(cfg, residentsGroup) {
     const height = cfg.height || 0;
     return {
       cfg,
+      district: cfg.district || "meridian",
+      placement: null,
       isStatic: true,
       path: null,
       height,
@@ -1223,11 +1247,19 @@ function buildResident(cfg, residentsGroup) {
   }
 
   const route = RESIDENT_ROUTES[cfg.routeKey];
+  const placement = DISTRICT_PLACEMENTS[route?.district];
+  if (!placement) {
+    throw new Error(
+      `Unknown district "${route?.district}" for resident route "${cfg.routeKey}"`,
+    );
+  }
   const height = cfg.height !== undefined ? cfg.height : route?.height || 0;
   const distance = cfg.initialDist || 0;
 
   return {
     cfg,
+    district: route.district,
+    placement,
     isStatic: false,
     path: route.path,
     height,
@@ -1413,7 +1445,7 @@ export function createResidents(parent) {
       }
 
       // Sample path position and direction without allocations
-      samplePath(res.path, res.distance, res.sampleState);
+      samplePath(res.path, res.distance, res.sampleState, res.placement);
 
       const theta = res.sampleState.s / RADIUS;
       const sinT = Math.sin(theta);

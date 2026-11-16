@@ -1,5 +1,5 @@
 import * as THREE from "three";
-import { RADIUS } from "./habitat.js";
+import { MERIDIAN_PLACEMENT, RADIUS } from "./habitat.js";
 import { addCivicBlock } from "./civic-primitives.js";
 import { addOrientedPanel, surfacePos, surfaceUp } from "./surface.js";
 import { SERVICE_FLOOR, SERVICE_ACCESS } from "./service-layout.js";
@@ -383,7 +383,7 @@ export function createServiceLevel(parent) {
   // ===========================================================================
   {
     const PAV_S = SERVICE_ACCESS.theta * RADIUS;
-    const PAV_Y = SERVICE_ACCESS.y;
+    const PAV_Y = MERIDIAN_PLACEMENT.toLocalY(SERVICE_ACCESS.y);
     const PAV_W = 5.2;
     const PAV_D = 5.2;
     const PAV_H = 3.4;

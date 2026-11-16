@@ -1,5 +1,11 @@
 import * as THREE from "three";
-import { RADIUS, LENGTH, SPAWN } from "./habitat.js";
+import {
+  RADIUS,
+  LENGTH,
+  SPAWN,
+  GREENWAY_PLACEMENT,
+  MERIDIAN_PLACEMENT,
+} from "./habitat.js";
 import { surfacePos, surfaceUp, setSurfaceMatrix } from "./surface.js";
 import { createVillage } from "./village.js";
 import { createFarm } from "./farm.js";
@@ -15,6 +21,7 @@ import { createMaintenance } from "./maintenance.js";
 import { createServiceLevel } from "./service-level.js";
 import { SERVICE_FLOOR } from "./service-layout.js";
 import { createSunline } from "./sunline.js";
+import { createTram } from "./tram.js";
 import { LANDMARKS } from "./landmarks.js";
 import { wrappedDeltaTheta } from "./cylinder-math.js";
 
@@ -39,6 +46,13 @@ function getRiverTheta(y) {
   return 2.0 + 0.24 * Math.sin(y * 0.016) + 0.12 * Math.cos(y * 0.038);
 }
 
+function copyTranslatedObstacles(localObstacles, placement) {
+  return localObstacles.map((obs) => ({
+    ...obs,
+    y: placement.toWorldY(obs.y),
+  }));
+}
+
 export function createWorld(scene, camera, saved = {}) {
   // World root group
   const worldGroup = new THREE.Group();
@@ -46,14 +60,14 @@ export function createWorld(scene, camera, saved = {}) {
   scene.add(worldGroup);
 
   // 1. Terrain Mesh (cylinder interior)
-  const segsT = 192;
-  const segsY = 180;
+  const segsT = 384;
+  const segsY = 360;
   const numVerts = (segsT + 1) * (segsY + 1);
 
   const positions = new Float32Array(numVerts * 3);
   const normals = new Float32Array(numVerts * 3);
   const colors = new Float32Array(numVerts * 3);
-  const indices = new Uint16Array(segsT * segsY * 6);
+  const indices = new Uint32Array(segsT * segsY * 6);
 
   for (let i = 0; i <= segsT; i++) {
     const theta = (i / segsT) * Math.PI * 2;
@@ -184,7 +198,7 @@ export function createWorld(scene, camera, saved = {}) {
       }
 
       // Endcap aprons
-      if (Math.abs(y) > 425) {
+      if (Math.abs(y) > LENGTH / 2 - 25) {
         r = 0.22;
         g = 0.28;
         b = 0.32;
@@ -360,47 +374,70 @@ export function createWorld(scene, camera, saved = {}) {
   // Candidate generation zones
   const candidateList = [];
 
-  // District 1: South Promenade Village
-  for (let i = 0; i < 48; i++) {
-    const y = -275 + rng() * 145;
+  const usableHalfLength = LENGTH / 2 - 40;
+  const greenwayFlankMinY = GREENWAY_PLACEMENT.toWorldY(-275);
+  const meridianFlankMinY = MERIDIAN_PLACEMENT.toWorldY(-75);
+  const outerBandHalfLength = LENGTH / 2 - 90;
+
+  // District 1: South Valley & Greenway Flanks
+  for (let i = 0; i < 32; i++) {
+    const y =
+      -usableHalfLength +
+      20 +
+      rng() * Math.max(40, greenwayFlankMinY - 25 - (-usableHalfLength + 20));
     const side = rng() > 0.5 ? 1 : -1;
     const theta = side > 0 ? 0.12 + rng() * 0.48 : -0.12 - rng() * 0.45;
     candidateList.push({ theta, y, type: "village" });
   }
+  for (let i = 0; i < 36; i++) {
+    const y = greenwayFlankMinY + rng() * 165;
+    const side = rng() > 0.5 ? 1 : -1;
+    const theta = side > 0 ? 0.12 + rng() * 0.55 : -0.12 - rng() * 0.55;
+    candidateList.push({ theta, y, type: "village" });
+  }
 
-  // District 2: Equatorial Meridian Metropolis
-  for (let i = 0; i < 65; i++) {
-    const y = -75 + rng() * 155;
+  // Central Valley Promenade Clusters (between Greenway and Meridian)
+  for (let i = 0; i < 48; i++) {
+    const y = -300 + rng() * 650;
+    const side = rng() > 0.5 ? 1 : -1;
+    const theta = side > 0 ? 0.12 + rng() * 0.65 : -0.12 - rng() * 0.65;
+    candidateList.push({ theta, y, type: i % 2 === 0 ? "village" : "outpost" });
+  }
+
+  // District 2: Meridian Metropolis Flanks
+  for (let i = 0; i < 56; i++) {
+    const y = meridianFlankMinY + rng() * 200;
     const side = rng() > 0.5 ? 1 : -1;
     const theta = side > 0 ? 0.1 + rng() * 0.65 : -0.1 - rng() * 0.65;
     candidateList.push({ theta, y, type: "city" });
   }
 
   // District 3: North Research Station
-  for (let i = 0; i < 48; i++) {
-    const y = 145 + rng() * 165;
+  for (let i = 0; i < 40; i++) {
+    const northMinY = meridianFlankMinY + 220;
+    const y = northMinY + rng() * Math.max(40, usableHalfLength - 20 - northMinY);
     const side = rng() > 0.5 ? 1 : -1;
     const theta = side > 0 ? 0.12 + rng() * 0.7 : -0.12 - rng() * 0.5;
     candidateList.push({ theta, y, type: "outpost" });
   }
 
   // District 4: Overhead Habitation Clusters
-  for (let i = 0; i < 50; i++) {
-    const y = -360 + rng() * 720;
+  for (let i = 0; i < 70; i++) {
+    const y = -outerBandHalfLength + rng() * (outerBandHalfLength * 2);
     const side = rng() > 0.5 ? 1 : -1;
     const theta = side > 0 ? 1.05 + rng() * 0.45 : 5.35 + rng() * 0.55;
     candidateList.push({ theta, y, type: "hillside" });
   }
 
   // Agricultural manors & silos
-  for (let i = 0; i < 35; i++) {
-    const y = -360 + rng() * 720;
+  for (let i = 0; i < 55; i++) {
+    const y = -outerBandHalfLength + rng() * (outerBandHalfLength * 2);
     const theta = 2.65 + rng() * 2.3;
     candidateList.push({ theta, y, type: "farm" });
   }
 
   // Filter and place solid buildings
-  const MAX_BUILDINGS = 160;
+  const MAX_BUILDINGS = 240;
 
   for (const cand of candidateList) {
     if (obstacles.length >= MAX_BUILDINGS) break;
@@ -460,7 +497,7 @@ export function createWorld(scene, camera, saved = {}) {
     }
 
     // 5. Cylinder length margin
-    if (Math.abs(y) + depth / 2 > 410) {
+    if (Math.abs(y) + depth / 2 > usableHalfLength) {
       continue;
     }
 
@@ -569,7 +606,7 @@ export function createWorld(scene, camera, saved = {}) {
   const treeList = [];
 
   // Promenade avenue trees
-  for (let y = -410; y <= 410; y += 17) {
+  for (let y = -usableHalfLength; y <= usableHalfLength; y += 17) {
     if (Math.abs(y - SPAWN.y) < 22) continue;
     if (inDistrict(0, y, 6) || inCity(0, y, 6)) continue;
     if (
@@ -586,8 +623,9 @@ export function createWorld(scene, camera, saved = {}) {
   }
 
   // Park & orchard trees
-  for (let i = 0; i < 280; i++) {
-    const y = -400 + rng() * 800;
+  const treeHalfSpan = LENGTH / 2 - 50;
+  for (let i = 0; i < 420; i++) {
+    const y = -treeHalfSpan + rng() * (treeHalfSpan * 2);
     const theta = rng() * Math.PI * 2;
     const arc = wrappedDeltaTheta(theta, 0) * RADIUS;
     if (inDistrict(arc, y, 6) || inCity(arc, y, 6)) continue;
@@ -714,16 +752,19 @@ export function createWorld(scene, camera, saved = {}) {
     const endGroup = new THREE.Group();
 
     // Circular Endcap Disc
-    const discGeo = new THREE.CircleGeometry(RADIUS, 64);
+    const discGeo = new THREE.CircleGeometry(RADIUS, 96);
     const discMesh = new THREE.Mesh(discGeo, endcapMat);
     discMesh.position.set(0, yEnd, 0);
     discMesh.rotation.x = yEnd < 0 ? -Math.PI / 2 : Math.PI / 2;
     endGroup.add(discMesh);
 
-    // Concentric detail rings
-    const ringRadii = [35, 75, 115, 155];
+    // Concentric detail rings scaled out to RADIUS while keeping metre beam thickness
+    const ringRadii = [];
+    for (let rr = 35; rr <= RADIUS - 20; rr += 50) {
+      ringRadii.push(rr);
+    }
     for (const rr of ringRadii) {
-      const ringGeo = new THREE.RingGeometry(rr - 1.2, rr + 1.2, 48);
+      const ringGeo = new THREE.RingGeometry(rr - 1.2, rr + 1.2, 64);
       const ringMesh = new THREE.Mesh(ringGeo, ringGirdMat);
       ringMesh.position.set(0, yEnd + (yEnd < 0 ? 0.3 : -0.3), 0);
       ringMesh.rotation.x = discMesh.rotation.x;
@@ -731,12 +772,11 @@ export function createWorld(scene, camera, saved = {}) {
     }
 
     // Glowing teal docking ring
-    const glowRingGeo = new THREE.RingGeometry(54, 55.5, 48);
+    const glowRingGeo = new THREE.RingGeometry(54, 55.5, 64);
     const glowRingMesh = new THREE.Mesh(glowRingGeo, accentMat);
     glowRingMesh.position.set(0, yEnd + (yEnd < 0 ? 0.4 : -0.4), 0);
     glowRingMesh.rotation.x = discMesh.rotation.x;
     endGroup.add(glowRingMesh);
-
     // 12 Radial Bulkhead Spokes
     for (let k = 0; k < 12; k++) {
       const angle = (k / 12) * Math.PI * 2;
@@ -762,14 +802,23 @@ export function createWorld(scene, camera, saved = {}) {
   }
 
   // Recess structural rings into the shell, leaving the walking surface clear.
-  const ringGirdersY = [-435, -150, 150, 435];
+  const endRingY = LENGTH / 2 - 15;
+  const ringGirdersY = [
+    -endRingY,
+    -LENGTH / 3,
+    -LENGTH / 6,
+    0,
+    LENGTH / 6,
+    LENGTH / 3,
+    endRingY,
+  ];
   for (const ry of ringGirdersY) {
-    const thickness = Math.abs(ry) > 400 ? 3.0 : 1.6;
+    const thickness = Math.abs(ry) >= endRingY - 1 ? 3.0 : 1.6;
     const ringTorus = new THREE.TorusGeometry(
       RADIUS + thickness - 0.15,
       thickness,
       16,
-      64,
+      96,
     );
     const ringTorusMesh = new THREE.Mesh(ringTorus, ringGirdMat);
     ringTorusMesh.rotation.x = Math.PI / 2;
@@ -781,23 +830,36 @@ export function createWorld(scene, camera, saved = {}) {
   const districtGroup = new THREE.Group();
   districtGroup.name = "inhabited_districts";
   worldGroup.add(districtGroup);
-  const village = createVillage(districtGroup);
-  const farm = createFarm(districtGroup);
+
+  const greenwayGroup = new THREE.Group();
+  greenwayGroup.name = "greenway_district";
+  greenwayGroup.position.y = GREENWAY_PLACEMENT.offsetY;
+  districtGroup.add(greenwayGroup);
+
+  const meridianGroup = new THREE.Group();
+  meridianGroup.name = "meridian_district";
+  meridianGroup.position.y = MERIDIAN_PLACEMENT.offsetY;
+  districtGroup.add(meridianGroup);
+
+  const village = createVillage(greenwayGroup);
+  const farm = createFarm(greenwayGroup);
   const residents = createResidents(districtGroup);
   const delivery = createDelivery(districtGroup, camera, saved.deliveryPhase);
-  const cityStreets = createCityStreets(districtGroup);
-  const cityTower = createCityTower(districtGroup);
+  const cityStreets = createCityStreets(meridianGroup);
+  const cityTower = createCityTower(meridianGroup);
   const maintenance = createMaintenance(districtGroup, saved.maintenancePhase);
-  const service = createServiceLevel(districtGroup);
+  const service = createServiceLevel(meridianGroup);
+  const tram = createTram(districtGroup);
   obstacles.push(
-    ...village.obstacles,
-    ...farm.obstacles,
+    ...copyTranslatedObstacles(village.obstacles, GREENWAY_PLACEMENT),
+    ...copyTranslatedObstacles(farm.obstacles, GREENWAY_PLACEMENT),
     ...delivery.obstacles,
-    ...cityStreets.obstacles,
-    ...cityTower.obstacles,
+    ...copyTranslatedObstacles(cityStreets.obstacles, MERIDIAN_PLACEMENT),
+    ...copyTranslatedObstacles(cityTower.obstacles, MERIDIAN_PLACEMENT),
     ...maintenance.obstacles,
-    ...service.obstacles,
+    ...copyTranslatedObstacles(service.obstacles, MERIDIAN_PLACEMENT),
     ...sunline.obstacles,
+    ...tram.obstacles,
     // The living surface is a deck, not the outermost pressure-hull floor.
     // Its underside stays solid above the enclosed service spaces.
     {
@@ -855,6 +917,7 @@ export function createWorld(scene, camera, saved = {}) {
     maintenance,
     sunline,
     residents,
+    tram,
     update,
   };
 }

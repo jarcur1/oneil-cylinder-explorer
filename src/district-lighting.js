@@ -24,6 +24,10 @@ function buildLightsBeginChunk() {
       "Unsupported Three.js lights_fragment_begin chunk layout for district lighting.",
     );
   }
+  const innerMaskStart = Math.max(20, RADIUS - 80);
+  const innerMaskEnd = Math.max(innerMaskStart + 20, RADIUS - 60);
+  const outerMaskStart = RADIUS + 0.1;
+  const outerMaskEnd = RADIUS + 1.0;
   const expanded = base.replace(
     DIR_LIGHT_INFO_SNIPPET,
     `${DIR_LIGHT_INFO_SNIPPET}\n\t\tdirectLight.color *= districtDaylightFactor;`,
@@ -37,7 +41,7 @@ vec2 districtOutside = max(
 );
 districtOutside = max( districtOutside, 0.0 );
 float districtBoxMask = 1.0 - smoothstep( 0.0, 14.0, length( districtOutside ) );
-float districtShellMask = smoothstep( 100.0, 120.0, districtRadial ) * ( 1.0 - smoothstep( 180.1, 181.0, districtRadial ) );
+float districtShellMask = smoothstep( ${innerMaskStart.toFixed(1)}, ${innerMaskEnd.toFixed(1)}, districtRadial ) * ( 1.0 - smoothstep( ${outerMaskStart.toFixed(1)}, ${outerMaskEnd.toFixed(1)}, districtRadial ) );
 float districtCoverage = districtBoxMask * districtShellMask;
 vec3 districtDaylightFactor = mix( vec3( 1.0 ), vec3( 0.045, 0.075, 0.12 ), districtCoverage * uDistrictEmergency );
 ${expanded}

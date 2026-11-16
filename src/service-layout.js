@@ -1,10 +1,10 @@
-import { RADIUS } from "./habitat.js";
+import { MERIDIAN_PLACEMENT, RADIUS } from "./habitat.js";
 
 export const SERVICE_FLOOR = -8;
 export const SERVICE_NAME = "Meridian Service Level";
 export const SERVICE_ACCESS = Object.freeze({
   theta: -14 / RADIUS,
-  y: -30,
+  y: MERIDIAN_PLACEMENT.toWorldY(-30),
   height: 0,
   yaw: 0,
 });
@@ -12,8 +12,8 @@ export const SERVICE_ACCESS = Object.freeze({
 export const SERVICE_BOUNDS = Object.freeze({
   minS: -33.5,
   maxS: 7.5,
-  minY: -34,
-  maxY: 23,
+  minY: MERIDIAN_PLACEMENT.toWorldY(-34),
+  maxY: MERIDIAN_PLACEMENT.toWorldY(23),
 });
 
 export const SERVICE_STOPS = [
@@ -21,7 +21,8 @@ export const SERVICE_STOPS = [
     id: "meridian-water-plant",
     name: "Meridian water plant",
     theta: -25.5 / RADIUS,
-    y: 6,
+    y: MERIDIAN_PLACEMENT.toWorldY(6),
+    height: SERVICE_FLOOR,
     color: 0x5bc0be,
     radius: 7,
     minHeight: -8.5,
@@ -32,7 +33,8 @@ export const SERVICE_STOPS = [
     id: "meridian-power-room",
     name: "Meridian power room",
     theta: -1.5 / RADIUS,
-    y: 6,
+    y: MERIDIAN_PLACEMENT.toWorldY(6),
+    height: SERVICE_FLOOR,
     color: 0xf59e0b,
     radius: 7,
     minHeight: -8.5,

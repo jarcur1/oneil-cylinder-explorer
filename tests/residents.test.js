@@ -3,6 +3,9 @@ import assert from "node:assert/strict";
 import { Scene } from "three";
 import { createResidents } from "../src/residents.js";
 import { RADIUS } from "../src/habitat.js";
+import { CARETAKER } from "../src/maintenance-layout.js";
+import { inDistrict } from "../src/district-layout.js";
+import { inCity } from "../src/city-layout.js";
 
 test("resident limbs remain continuous across route lap boundaries with articulated gait", () => {
   const scene = new Scene();
@@ -178,10 +181,12 @@ test("a viewpoint visitor pauses, settles, and resumes walking", () => {
   assert.ok(sawResume, "Visitor must resume walking with active gait after resting");
 });
 
-test("Mara remains at her interaction point during world updates", () => {
+test("Mara remains at her relocated interaction point during world updates", () => {
   const scene = new Scene();
   const residents = createResidents(scene);
   const mara = scene.getObjectByName("caretaker-mara");
+  assert.ok(inCity(CARETAKER.s, mara.position.y));
+  assert.ok(Math.abs(mara.position.y - CARETAKER.y) < 1e-6);
   const origin = mara.position.clone();
   for (let frame = 0; frame < 120; frame++) {
     residents.update(1 / 60, frame / 60);
@@ -226,6 +231,9 @@ test("open conversation anchor tracks Nia Sen as she continues walking", () => {
     anchorDistance < 0.1,
     "Already-open conversation anchor must stay aligned with Nia's live world position",
   );
+  assert.ok(inDistrict(nia.sampleState.s, nia.sampleState.y));
+  assert.ok(Math.abs(nia.root.position.y - nia.sampleState.y) < 1e-9);
+  assert.equal(residents.getReaction({ ...initialPose, y: -230 }, "available"), null);
 
   assert.equal(residents.getReaction(initialPose, "isolated"), null);
 });
@@ -294,4 +302,54 @@ test("Nia Sen reaction enforces grounded walk mode, floor height, and 3m wrapped
     ),
     null,
   );
+});
+
+test("residents remain anchored inside their districts without offset drift across updates and dwells", () => {
+  const scene = new Scene();
+  const residents = createResidents(scene);
+  const greenwayIds = new Set([
+    "resident-promenade",
+    "resident-square",
+    "resident-glasshouse",
+    "resident-orchard",
+    "resident-canal",
+  ]);
+  const meridianIds = new Set([
+    "caretaker-mara",
+    "resident-plaza",
+    "resident-lobby",
+    "resident-skywalk",
+    "resident-skyroom",
+  ]);
+
+  function assertAnchored(stepLabel) {
+    for (const r of residents.residents) {
+      const { id } = r.cfg;
+      assert.ok(
+        Math.abs(r.root.position.y - r.sampleState.y) < 1e-9,
+        `${id} root.position.y (${r.root.position.y}) drifted from sampleState.y (${r.sampleState.y}) ${stepLabel}`,
+      );
+      if (greenwayIds.has(id)) {
+        assert.ok(
+          inDistrict(r.sampleState.s, r.root.position.y),
+          `${id} must remain in relocated Greenway ${stepLabel}, got y=${r.root.position.y}`,
+        );
+      } else if (meridianIds.has(id)) {
+        assert.ok(
+          inCity(r.sampleState.s, r.root.position.y),
+          `${id} must remain in relocated Meridian ${stepLabel}, got y=${r.root.position.y}`,
+        );
+      }
+    }
+  }
+
+  assertAnchored("at initialization");
+  for (let frame = 0; frame < 30 * 60; frame++) {
+    residents.update(1 / 60, frame / 60);
+  }
+  assertAnchored("after 30s including dwells");
+  for (let frame = 30 * 60; frame < 120 * 60; frame++) {
+    residents.update(1 / 60, frame / 60);
+  }
+  assertAnchored("after 120s across lap wraps");
 });

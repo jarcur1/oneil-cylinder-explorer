@@ -2,7 +2,7 @@ import { defineConfig, devices } from "@playwright/test";
 
 export default defineConfig({
   testDir: "checks",
-  testMatch: "browser.spec.js",
+  testMatch: "*.spec.js",
   workers: 1,
   fullyParallel: false,
   timeout: 45_000,
