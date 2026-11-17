@@ -79,8 +79,12 @@ test("resident limbs remain continuous across route lap boundaries with articula
       w.maxLeftArm = Math.max(w.maxLeftArm, la);
       w.minRightArm = Math.min(w.minRightArm, ra);
       w.maxRightArm = Math.max(w.maxRightArm, ra);
-      w.minLeftForearm = Math.min(w.minLeftForearm, lf);
-      w.maxLeftForearm = Math.max(w.maxLeftForearm, lf);
+      // Forearm gait bounds apply while walking; dwell gestures intentionally
+      // flex elbows upward and are checked separately below.
+      if (r.gaitWeight === 1) {
+        w.minLeftForearm = Math.min(w.minLeftForearm, lf);
+        w.maxLeftForearm = Math.max(w.maxLeftForearm, lf);
+      }
       w.maxBodyBob = Math.max(w.maxBodyBob, r.body.position.z);
       w.minTorsoTwist = Math.min(w.minTorsoTwist, r.torso.rotation.z);
       w.maxTorsoTwist = Math.max(w.maxTorsoTwist, r.torso.rotation.z);
@@ -352,4 +356,140 @@ test("residents remain anchored inside their districts without offset drift acro
     residents.update(1 / 60, frame / 60);
   }
   assertAnchored("after 120s across lap wraps");
+});
+
+function transformSnapshot(root) {
+  const values = [];
+  root.traverse((node) => {
+    values.push(...node.position.toArray(), ...node.quaternion.toArray(), ...node.scale.toArray());
+  });
+  return values;
+}
+
+test("city dwell gestures animate existing belongings and eyes without moving planted feet", () => {
+  const scene = new Scene();
+  const controller = createResidents(scene);
+  const city = controller.residents.filter((r) => r.dwells);
+  const samples = new Map();
+  for (let frame = 0; frame < 32 * 60; frame++) {
+    controller.update(1 / 60, frame * 1000);
+    for (const r of city) {
+      if (r.dwellState !== "dwelling") continue;
+      let sample = samples.get(r);
+      const feet = [
+        ...transformSnapshot(r.leftThigh),
+        ...transformSnapshot(r.rightThigh),
+        ...r.root.position.toArray(),
+        ...r.heading.quaternion.toArray(),
+        ...r.body.position.toArray(),
+      ];
+      if (!sample) {
+        sample = {
+          feet,
+          minHead: Infinity,
+          maxHead: -Infinity,
+          minElbow: Infinity,
+          maxElbow: -Infinity,
+          minProp: Infinity,
+          maxProp: -Infinity,
+        };
+        samples.set(r, sample);
+      }
+      assert.deepEqual(feet, sample.feet, `${r.cfg.id} must keep dwell feet and anchor planted`);
+      sample.minHead = Math.min(sample.minHead, r.head.rotation.z);
+      sample.maxHead = Math.max(sample.maxHead, r.head.rotation.z);
+      sample.minElbow = Math.min(sample.minElbow, r.rightForearm.rotation.x);
+      sample.maxElbow = Math.max(sample.maxElbow, r.rightForearm.rotation.x);
+      const prop = r.satchel || r.briefcase || r.binoculars;
+      if (prop) {
+        sample.minProp = Math.min(sample.minProp, prop.rotation.x);
+        sample.maxProp = Math.max(sample.maxProp, prop.rotation.x);
+      }
+      if (r.binoculars) {
+        assert.ok(r.leftArm.rotation.x > 1.3 && r.rightArm.rotation.x > 1.3);
+        assert.ok(r.leftForearm.rotation.x > 1.5 && r.rightForearm.rotation.x > 1.5);
+        const eyeOffset = r.head.position.clone().add(
+          r.head.position.clone().set(0, 0.2, 0.02).applyQuaternion(r.head.quaternion),
+        );
+        assert.ok(r.binoculars.position.distanceTo(eyeOffset) < 1e-9, "optics follow the eyes");
+        assert.ok(r.binoculars.quaternion.angleTo(r.head.quaternion) < 1e-7);
+      }
+    }
+  }
+  for (const r of city) {
+    const sample = samples.get(r);
+    assert.ok(sample, `${r.cfg.id} must reach its existing dwell`);
+    assert.ok(sample.maxHead - sample.minHead > 0.1, `${r.cfg.id} looks across its surroundings`);
+    if (r.satchel || r.briefcase) {
+      assert.ok(sample.maxElbow - sample.minElbow > 0.1, `${r.cfg.id} consults belongings`);
+      assert.ok(sample.maxProp - sample.minProp > 0.02, `${r.cfg.id} existing belongings move`);
+    } else if (r.binoculars) {
+      assert.ok(sample.maxProp - sample.minProp > 0.01, "observer adjusts viewing pitch");
+    } else {
+      assert.ok(sample.maxElbow - sample.minElbow > 0.015, "tourist relaxes its upper body");
+    }
+  }
+});
+
+test("all city upper-body channels blend continuously through dwells and route wraps", () => {
+  const controller = createResidents(new Scene());
+  const city = controller.residents.filter((r) => r.dwells);
+  const histories = city.map((r) => ({
+    r,
+    states: new Set([r.dwellState]),
+    distance: r.distance,
+    wraps: 0,
+    previous: null,
+  }));
+  let peakChange = 0;
+  for (let frame = 0; frame < 125 * 60; frame++) {
+    controller.update(1 / 60, frame / 60);
+    for (const history of histories) {
+      const { r } = history;
+      const pose = [
+        ...transformSnapshot(r.torso),
+        r.body.position.z,
+      ];
+      if (history.previous) {
+        for (let i = 0; i < pose.length; i++) {
+          peakChange = Math.max(peakChange, Math.abs(pose[i] - history.previous[i]));
+        }
+      }
+      if (r.distance < history.distance) history.wraps++;
+      history.distance = r.distance;
+      history.previous = pose;
+      history.states.add(r.dwellState);
+    }
+  }
+  assert.ok(peakChange < 0.065, `upper-body frame discontinuity: ${peakChange}`);
+  for (const { r, states, wraps } of histories) {
+    assert.ok(wraps > 0, `${r.cfg.id} traverses a route wrap`);
+    for (const state of ["walking", "settling", "dwelling", "resuming"]) {
+      assert.ok(states.has(state), `${r.cfg.id} traverses ${state}`);
+    }
+  }
+});
+
+test("paused residents freeze every transform regardless of external elapsed time", () => {
+  const scene = new Scene();
+  const controller = createResidents(scene);
+  let sampledDwell = false;
+  let sampledResume = false;
+  for (let frame = 0; frame < 30 * 60; frame++) {
+    controller.update(1 / 60, frame / 60);
+    const states = controller.residents.map((r) => [
+      r.distance, r.gaitPhase, r.gaitWeight, r.dwellElapsed, r.poseElapsed,
+    ]);
+    const before = transformSnapshot(scene);
+    controller.update(0, 1e15);
+    controller.update(-1, -1e15);
+    controller.update(Number.NaN, Number.POSITIVE_INFINITY);
+    assert.deepEqual(transformSnapshot(scene), before);
+    assert.deepEqual(controller.residents.map((r) => [
+      r.distance, r.gaitPhase, r.gaitWeight, r.dwellElapsed, r.poseElapsed,
+    ]), states);
+    sampledDwell ||= controller.residents.some((r) => r.dwellState === "dwelling");
+    sampledResume ||= controller.residents.some((r) => r.dwellState === "resuming");
+  }
+  assert.ok(sampledDwell && sampledResume, "freeze includes active dwell and resume poses");
 });

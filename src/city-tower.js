@@ -34,8 +34,8 @@ export function createCityTower(parent) {
   // =========================================================================
   // SHARED MATERIALS (Ultra-low draw call budget, authored civic palette)
   // =========================================================================
-  const facadeMat = createFacadeMaterial("#334148", "#8ed5e3", 12, 18);
-  const facadeTierMat = createFacadeMaterial("#29353b", "#a1e5f0", 8, 12);
+  const facadeMat = createFacadeMaterial("#334148", "#8ed5e3", 12, 18, "tower");
+  const facadeTierMat = createFacadeMaterial("#29353b", "#a1e5f0", 8, 12, "tower");
 
   const stoneWallMat = new THREE.MeshStandardMaterial({
     color: 0x48565e,

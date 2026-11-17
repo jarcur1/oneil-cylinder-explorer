@@ -98,6 +98,10 @@ Reloading an isolated or replaced job starts with emergency lighting already app
 
 Continue north along the promenade from Greenway to Meridian, or choose its entrance in the intro/pause menu. Seven authored surrounding buildings frame a plaza, side streets, planted avenues, and the taller civic tower. Other buildings are exterior-only; their marked entrances do not unlock or require collecting passes.
 
+Meridian's existing buildings have distinct, static facade treatments: recessed glazing, blinds and curtains, book-lined library windows, and occasional warm room colors. Flush library exhibition, exchange notice, and residential entrance displays add street-level identity without opening new interiors or changing building footprints. These are ordinary lit materials, not a new day/night cycle or extra lights.
+
+The plaza armillary's rings turn slowly on simulation time. Existing city visitors look around and check their belongings during stops; the Skywalk observer raises binoculars while viewing the habitat. Their feet and routes stay fixed during a dwell, Mara's interaction anchor is unchanged, and pausing or opening the map freezes the motion.
+
 From **Meridian plaza**, take the east street, then turn north through the tower's open south doorway. Approach the illuminated lift pad and press **E** to reach the **Skyroom**, 42 m above the living surface. Walk around its glazed observation lounge; return to the pad and press **E** for the ground lobby.
 
 The separate street lift is on the north cross-street, east of the promenade. **E** takes you to the **9 m Skywalk**, a railed viewing terrace with two connected deck segments. Return to its pad and press **E** to descend. Ground pedestrians can pass underneath.
@@ -188,11 +192,11 @@ The production files are in `dist/`. Serve that folder with an ordinary static w
 - `src/service-layout.js` and `src/service-level.js`: signed-depth bounds, stable discoveries with explicit `SERVICE_FLOOR` `height`, service pavilion, enclosed utility rooms, machinery, physical obstacles, and isolated underground lighting.
 - `src/sunline-layout.js` and `src/sunline-transit.js`: axial dimensions, relative-angle bounds, stable discoveries, and canonical exported `SUNLINE_TRANSFERS` endcap/dock transfers.
 - `src/sunline.js` and `src/sunline-state.js`: endcap hubs, sectional luminaire, rail corridor, trolley, two phase-repainted console textures, emitter props, and three-step maintenance state.
-- `src/civic-primitives.js`: shared curved radial solids, matching visual/collision construction, and procedural facade textures.
+- `src/civic-primitives.js`: shared curved radial solids, matching visual/collision construction, and deterministic style-specific facade textures.
 - `src/atmosphere.js`: static sunlight/shadow cache configuration, local lights, fog, and procedural contact shading.
 - `src/district-lighting.js`: world-space regional daylight attenuation, per-world material/uniform ownership, and pause-safe power transitions; existing point lamps and emissive surfaces stay lit.
 - `src/soundscape.js`: lazy audio graph, location-aware ambience, footsteps/landing suppression while riding, and serialized pause/mute lifecycle.
-- `src/residents.js`: nine walking routes, shared character models, altitude-aware gait, viewpoint dwells, stationary caretaker Mara, and Nia’s phase-aware conversation with a live moving anchor.
+- `src/residents.js`: nine walking routes, shared character models, altitude-aware gait, blended city dwell gestures, stationary caretaker Mara, and Nia’s phase-aware conversation with a live moving anchor.
 - `src/delivery.js` and `src/delivery-layout.js`: delivery state, station coordinates, grounded walk-mode prompts, and pickup/carried/received crate props.
 - `src/maintenance-state.js`, `src/maintenance.js`, and `src/maintenance-layout.js`: caretaker conversations, maintenance progression/guards, unit location, fan and indicator visuals.
 - `src/tram-layout.js`, `src/tram-state.js`, and `src/tram.js`: pure 5-stop `θ = 0` route/dimensions, deterministic shuttle timetable/transfer guards, instanced guideway/stations, and carriage pose provider.
@@ -206,11 +210,12 @@ The production files are in `dist/`. Serve that folder with an ordinary static w
 - `src/style.css` and `index.html`: interface, map modal, and waypoint marker styling/markup.
 - `tests/habitat.test.js`: expanded cylinder dimensions, surface `1.000 g`, district placement separation, and world bounds.
 - `tests/navigation.test.js`: unrolled projection seam wrapping, layer classification, authored cross-floor guidance, live job target tracking, and floor-aware arrival checks.
-- `tests/residents.test.js`: nonzero articulated gait through route wraps, raised-floor placement, viewpoint stops/resume, and live conversation anchors.
+- `tests/residents.test.js`: articulated gait and wrap continuity, raised-floor placement, city viewing/belongings gestures, planted dwell feet, frozen poses, and live conversation anchors.
 - `tests/player.test.js`: deck fall capture, overhead clearance, constant physical collision size, underpass/step behavior, negative-floor support, radial jump differences, secured bounds, rail direction/input constraints, invalid transfers, and low-gravity fallback landing.
 - `tests/maintenance.test.js`, `tests/sunline.test.js`, and `tests/save-game.test.js`: maintenance transitions, physical range/floor/mode/airborne guards, angular wrapping, saved continuation, legacy migration, and corrupt/unavailable storage handling.
 - `tests/tram.test.js`: civilian tram route dimensions, timetable/dwell/reversal determinism, and transfer eligibility guards.
 - `checks/browser.spec.js`, `checks/navigation.spec.js`, `checks/tram.spec.js`, `checks/world.html`, and `playwright.config.js`: retained real-browser lifecycle, audio, authored-world, map/waypoint, civilian tram, compact layout, and WebGL regressions.
+- `checks/city-life.spec.js`: rendered city dwell poses, physical anchors, simulation-time armillary motion, pause invariance, and dynamic shadow-cache exclusions.
 
 Coordinates use the Y axis along the cylinder. At angle `theta` and inward height `h` relative to the living surface (negative below it):
 

@@ -880,6 +880,7 @@ export function createWorld(scene, camera, saved = {}) {
   // Return API
   function update(dt, elapsed, playerState) {
     farm.update(dt, elapsed);
+    cityStreets.update(dt);
     residents.update(dt, elapsed);
     delivery.update(dt, elapsed);
     maintenance.update(dt, elapsed);

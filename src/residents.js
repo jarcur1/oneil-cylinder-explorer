@@ -1216,6 +1216,11 @@ function buildResident(cfg, residentsGroup) {
   // Distinct hats, aprons, and accessories
   cfg.addAccessories(head, torso);
 
+  // Cache pose targets once; the update loop never searches or allocates.
+  const satchel = torso.getObjectByName("satchel") || null;
+  const briefcase = torso.getObjectByName("briefcase") || null;
+  const binoculars = torso.getObjectByName("binoculars") || null;
+
   if (cfg.static) {
     const height = cfg.height || 0;
     return {
@@ -1276,6 +1281,11 @@ function buildResident(cfg, residentsGroup) {
     heading,
     body,
     torso,
+    head,
+    satchel,
+    briefcase,
+    binoculars,
+    poseElapsed: 0,
     leftThigh,
     rightThigh,
     leftShin,
@@ -1332,7 +1342,7 @@ export function createResidents(parent) {
 
   function update(dt, _elapsed) {
     // Clamp delta time to avoid large frame skips on tab switch / lag spikes
-    const safeDt = dt > 0.25 ? 0.25 : dt;
+    const safeDt = Number.isFinite(dt) && dt > 0 ? Math.min(0.25, dt) : 0;
 
     for (let i = 0; i < residents.length; i++) {
       const res = residents[i];
@@ -1363,6 +1373,7 @@ export function createResidents(parent) {
       }
 
       if (safeDt > 0) {
+        if (res.district === "meridian") res.poseElapsed += safeDt;
         if (res.dwells && res.dwells.length > 0) {
           const dwell = res.dwells[res.dwellIndex];
           const S_dist = SETTLE_DURATION * res.speed * SETTLE_DISTANCE_FACTOR;
@@ -1476,6 +1487,59 @@ export function createResidents(parent) {
 
       res.body.position.z = Math.abs(swing) * 0.035 * gw;
       res.torso.rotation.z = swing * 0.04 * gw;
+
+      if (res.district === "meridian") {
+        // Only the upper body participates: planted dwell feet and route anchors
+        // retain their original pose. The existing gait envelope eases both ways.
+        const rest = 1 - gw;
+        const clock = res.poseElapsed;
+        const viewing = res.binoculars !== null;
+        const scan = Math.sin(clock * 0.65) * (viewing ? 0.12 : 0.24);
+        const consult = 0.65 + 0.35 * Math.sin(clock * 0.9);
+        res.head.rotation.z = rest * scan;
+        res.head.rotation.x = rest * (viewing
+          ? 0.025 * Math.sin(clock * 0.8)
+          : -0.07 * consult);
+        res.torso.rotation.z += rest * scan * 0.18;
+        res.torso.rotation.x = rest * 0.018 * Math.sin(clock * 0.8);
+
+        if (viewing) {
+          // Elbows fold upward while shoulders raise the existing optics to the
+          // eyes. Small shared scans keep the glasses aligned with the gaze.
+          res.leftArm.rotation.x += rest * 1.4;
+          res.rightArm.rotation.x += rest * 1.4;
+          res.leftArm.rotation.y = -rest * 0.18;
+          res.rightArm.rotation.y = rest * 0.18;
+          res.leftForearm.rotation.x += rest * 1.73;
+          res.rightForearm.rotation.x += rest * 1.73;
+          const yaw = res.head.rotation.z;
+          const pitch = res.head.rotation.x;
+          res.binoculars.position.set(
+            -rest * Math.sin(yaw) * 0.2,
+            0.12 + rest * (Math.cos(yaw) * Math.cos(pitch) * 0.2
+              - Math.sin(pitch) * 0.02 - 0.12),
+            0.28 + rest * (0.61 + Math.cos(yaw) * Math.sin(pitch) * 0.2
+              + Math.cos(pitch) * 0.02 - 0.28),
+          );
+          res.binoculars.rotation.set(rest * pitch, 0, rest * yaw);
+        } else if (res.satchel || res.briefcase) {
+          // A restrained belongings check, rather than an unrelated new prop.
+          const reach = rest * consult;
+          res.rightArm.rotation.x += reach * 0.2;
+          res.rightForearm.rotation.x += reach * 0.73;
+          if (res.satchel) {
+            res.satchel.rotation.x = reach * 0.12;
+          } else {
+            res.briefcase.position.set(0.08 + reach * 0.06, 0.04 + reach * 0.12, -0.28 + reach * 0.08);
+            res.briefcase.rotation.x = reach * 0.22;
+          }
+        } else {
+          // The unencumbered Skyroom tourist slowly takes in the panorama.
+          res.leftArm.rotation.x += rest * 0.08;
+          res.rightArm.rotation.x += rest * 0.12;
+          res.rightForearm.rotation.x += rest * 0.08 * consult;
+        }
+      }
     }
     if (nia) {
       reactionTarget.s = nia.sampleState.s;
