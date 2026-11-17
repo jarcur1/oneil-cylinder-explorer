@@ -1041,6 +1041,58 @@ const RESIDENT_CONFIGS = [
 // -----------------------------------------------------------------------------
 // Resident Assembly
 // -----------------------------------------------------------------------------
+function createViewingArm(arm, forearm, hand, side, opticsBounds) {
+  const handBounds = hand.geometry.boundingBox;
+  return {
+    arm,
+    forearm,
+    side,
+    upperLength: forearm.position.length(),
+    lowerLength: hand.position.length(),
+    contact: new THREE.Vector3(
+      (side < 0 ? opticsBounds.min.x : opticsBounds.max.x)
+        + side * (handBounds.max.x - handBounds.min.x) * 0.25,
+      0,
+      0,
+    ),
+  };
+}
+
+function poseViewingArm(grip, limb, rest) {
+  const { arm, forearm, upperLength, lowerLength } = limb;
+  // The gait writes X each frame; discard the previous solve's other Euler axes
+  // before blending quaternions, including when the rest envelope reaches zero.
+  arm.rotation.set(arm.rotation.x, 0, 0);
+  forearm.rotation.set(forearm.rotation.x, 0, 0);
+  if (rest === 0) return;
+
+  // Solve the fully raised pose, then blend the joints once. Solving against
+  // the already-lowering optics folds the chain through a twist branch midway
+  // through the envelope and can flip the shortest quaternion interpolation.
+  const target = grip.target.copy(limb.contact)
+    .applyQuaternion(grip.viewingQuaternion).add(grip.viewingPosition);
+  const direction = grip.direction.subVectors(target, arm.position);
+  const distance = direction.length();
+  direction.multiplyScalar(1 / distance);
+  const along = (upperLength * upperLength - lowerLength * lowerLength
+    + distance * distance) / (2 * distance);
+  const bend = Math.sqrt(Math.max(0, upperLength * upperLength - along * along));
+  // Project an outward/downward elbow pole onto the target's perpendicular
+  // plane. This keeps the elbows below the optics and away from the face.
+  const pole = grip.pole.set(limb.side * 0.5, 0, -1);
+  pole.addScaledVector(direction, -pole.dot(direction)).normalize();
+  const elbow = grip.elbow.copy(arm.position)
+    .addScaledVector(direction, along).addScaledVector(pole, bend);
+  grip.upperDirection.subVectors(elbow, arm.position).normalize();
+  grip.lowerDirection.subVectors(target, elbow).normalize();
+  grip.upperQuaternion.setFromUnitVectors(grip.down, grip.upperDirection);
+  grip.lowerQuaternion.setFromUnitVectors(grip.down, grip.lowerDirection);
+  grip.inverseUpper.copy(grip.upperQuaternion).invert();
+  grip.lowerQuaternion.premultiply(grip.inverseUpper);
+  arm.quaternion.slerp(grip.upperQuaternion, rest);
+  forearm.quaternion.slerp(grip.lowerQuaternion, rest);
+}
+
 function buildResident(cfg, residentsGroup) {
   const root = new THREE.Group();
   root.name = cfg.id;
@@ -1152,6 +1204,7 @@ function buildResident(cfg, residentsGroup) {
   leftForearm.add(leftForearmMesh);
 
   const leftHandMesh = new THREE.Mesh(geoHand, cfg.skin);
+  leftHandMesh.name = "hand-left";
   leftHandMesh.position.set(0, 0, -0.27);
   leftForearm.add(leftHandMesh);
 
@@ -1175,6 +1228,7 @@ function buildResident(cfg, residentsGroup) {
   rightForearm.add(rightForearmMesh);
 
   const rightHandMesh = new THREE.Mesh(geoHand, cfg.skin);
+  rightHandMesh.name = "hand-right";
   rightHandMesh.position.set(0, 0, -0.27);
   rightForearm.add(rightHandMesh);
 
@@ -1194,10 +1248,12 @@ function buildResident(cfg, residentsGroup) {
   head.add(headMesh);
 
   const leftEye = new THREE.Mesh(geoEye, matEye);
+  leftEye.name = "eye-left";
   leftEye.position.set(-0.05, 0.105, 0.02);
   head.add(leftEye);
 
   const rightEye = new THREE.Mesh(geoEye, matEye);
+  rightEye.name = "eye-right";
   rightEye.position.set(0.05, 0.105, 0.02);
   head.add(rightEye);
 
@@ -1215,6 +1271,48 @@ function buildResident(cfg, residentsGroup) {
 
   // Distinct hats, aprons, and accessories
   cfg.addAccessories(head, torso);
+
+  // Cache pose targets once; the update loop never searches or allocates.
+  const satchel = torso.getObjectByName("satchel") || null;
+  const briefcase = torso.getObjectByName("briefcase") || null;
+  const binoculars = torso.getObjectByName("binoculars") || null;
+  let viewingGrip = null;
+  if (binoculars) {
+    for (const geometry of [binoculars.geometry, leftEye.geometry, leftHandMesh.geometry]) {
+      if (!geometry.boundingBox) geometry.computeBoundingBox();
+    }
+    const opticsBounds = binoculars.geometry.boundingBox;
+    const eyeBounds = leftEye.geometry.boundingBox;
+    const eyeOffset = new THREE.Vector3().addVectors(leftEye.position, rightEye.position)
+      .multiplyScalar(0.5);
+    eyeOffset.x += (eyeBounds.min.x + eyeBounds.max.x
+      - opticsBounds.min.x - opticsBounds.max.x) * 0.5;
+    eyeOffset.z += (eyeBounds.min.z + eyeBounds.max.z
+      - opticsBounds.min.z - opticsBounds.max.z) * 0.5;
+    // Leave one eye-depth of air ahead of the actual front eye plane. The rear
+    // housing thus clears the nose while the eyes align inside its X/Z extents.
+    eyeOffset.y += eyeBounds.max.y - opticsBounds.min.y
+      + eyeBounds.max.z - eyeBounds.min.z;
+    viewingGrip = {
+      viewingQuaternion: head.quaternion,
+      eyeOffset,
+      walkingPosition: binoculars.position.clone(),
+      walkingQuaternion: binoculars.quaternion.clone(),
+      viewingPosition: new THREE.Vector3(),
+      left: createViewingArm(leftArm, leftForearm, leftHandMesh, -1, opticsBounds),
+      right: createViewingArm(rightArm, rightForearm, rightHandMesh, 1, opticsBounds),
+      target: new THREE.Vector3(),
+      direction: new THREE.Vector3(),
+      pole: new THREE.Vector3(),
+      elbow: new THREE.Vector3(),
+      upperDirection: new THREE.Vector3(),
+      lowerDirection: new THREE.Vector3(),
+      down: new THREE.Vector3(0, 0, -1),
+      upperQuaternion: new THREE.Quaternion(),
+      lowerQuaternion: new THREE.Quaternion(),
+      inverseUpper: new THREE.Quaternion(),
+    };
+  }
 
   if (cfg.static) {
     const height = cfg.height || 0;
@@ -1276,6 +1374,12 @@ function buildResident(cfg, residentsGroup) {
     heading,
     body,
     torso,
+    head,
+    satchel,
+    briefcase,
+    binoculars,
+    viewingGrip,
+    poseElapsed: 0,
     leftThigh,
     rightThigh,
     leftShin,
@@ -1332,7 +1436,7 @@ export function createResidents(parent) {
 
   function update(dt, _elapsed) {
     // Clamp delta time to avoid large frame skips on tab switch / lag spikes
-    const safeDt = dt > 0.25 ? 0.25 : dt;
+    const safeDt = Number.isFinite(dt) && dt > 0 ? Math.min(0.25, dt) : 0;
 
     for (let i = 0; i < residents.length; i++) {
       const res = residents[i];
@@ -1363,6 +1467,7 @@ export function createResidents(parent) {
       }
 
       if (safeDt > 0) {
+        if (res.district === "meridian") res.poseElapsed += safeDt;
         if (res.dwells && res.dwells.length > 0) {
           const dwell = res.dwells[res.dwellIndex];
           const S_dist = SETTLE_DURATION * res.speed * SETTLE_DISTANCE_FACTOR;
@@ -1476,6 +1581,51 @@ export function createResidents(parent) {
 
       res.body.position.z = Math.abs(swing) * 0.035 * gw;
       res.torso.rotation.z = swing * 0.04 * gw;
+
+      if (res.district === "meridian") {
+        // Only the upper body participates: planted dwell feet and route anchors
+        // retain their original pose. The existing gait envelope eases both ways.
+        const rest = 1 - gw;
+        const clock = res.poseElapsed;
+        const viewing = res.binoculars !== null;
+        const scan = Math.sin(clock * 0.65) * (viewing ? 0.12 : 0.24);
+        const consult = 0.65 + 0.35 * Math.sin(clock * 0.9);
+        res.head.rotation.z = rest * scan;
+        res.head.rotation.x = rest * (viewing
+          ? 0.025 * Math.sin(clock * 0.8)
+          : -0.07 * consult);
+        res.torso.rotation.z += rest * scan * 0.18;
+        res.torso.rotation.x = rest * 0.018 * Math.sin(clock * 0.8);
+
+        if (viewing) {
+          const grip = res.viewingGrip;
+          grip.viewingPosition.copy(grip.eyeOffset)
+            .applyQuaternion(res.head.quaternion).add(res.head.position);
+          res.binoculars.position.lerpVectors(
+            grip.walkingPosition, grip.viewingPosition, rest,
+          );
+          res.binoculars.quaternion.copy(grip.walkingQuaternion)
+            .slerp(res.head.quaternion, rest);
+          poseViewingArm(grip, grip.left, rest);
+          poseViewingArm(grip, grip.right, rest);
+        } else if (res.satchel || res.briefcase) {
+          // A restrained belongings check, rather than an unrelated new prop.
+          const reach = rest * consult;
+          res.rightArm.rotation.x += reach * 0.2;
+          res.rightForearm.rotation.x += reach * 0.73;
+          if (res.satchel) {
+            res.satchel.rotation.x = reach * 0.12;
+          } else {
+            res.briefcase.position.set(0.08 + reach * 0.06, 0.04 + reach * 0.12, -0.28 + reach * 0.08);
+            res.briefcase.rotation.x = reach * 0.22;
+          }
+        } else {
+          // The unencumbered Skyroom tourist slowly takes in the panorama.
+          res.leftArm.rotation.x += rest * 0.08;
+          res.rightArm.rotation.x += rest * 0.12;
+          res.rightForearm.rotation.x += rest * 0.08 * consult;
+        }
+      }
     }
     if (nia) {
       reactionTarget.s = nia.sampleState.s;

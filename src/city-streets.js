@@ -6,14 +6,119 @@ import {
   addSurfaceBox,
   addSurfacePatch,
   addSurfaceSign,
+  addOrientedPanel,
+  surfacePos,
 } from "./surface.js";
+
+// Flush architectural displays are painted once, then lit with the building.
+// Shared within each frontage type; these are not doors or playable interiors.
+function createStreetDisplayMaterial(style) {
+  const canvas = document.createElement("canvas");
+  canvas.width = canvas.height = 512;
+  const ctx = canvas.getContext("2d");
+  ctx.fillStyle = "#84745a";
+  ctx.fillRect(0, 0, 512, 512);
+  ctx.fillStyle = "#182d32";
+  ctx.fillRect(8, 8, 496, 496);
+  ctx.strokeStyle = "#a99a76";
+  ctx.lineWidth = 2;
+  ctx.strokeRect(18, 18, 476, 476);
+  const library = style === "library";
+  const exchange = style === "exchange";
+  ctx.textAlign = "center";
+  ctx.fillStyle = "#e4d7b8";
+  ctx.font = "600 30px system-ui";
+  ctx.fillText(library ? "CIVIC LIBRARY" : exchange ? "LOCAL EXCHANGE" : "COMMONS RESIDENCES", 256, 68, 450);
+  ctx.font = "18px system-ui";
+  ctx.fillStyle = "#9cb7b1";
+  ctx.fillText(library ? "WINDOW EXHIBITION" : exchange ? "DISTRICT NOTICE WINDOW" : "RESIDENTIAL ENTRANCE", 256, 105, 450);
+  ctx.fillStyle = "#31484a";
+  ctx.fillRect(32, 132, 448, 280);
+  if (library) {
+    // Book jackets and an orbital plate, displayed behind the exterior glass.
+    const jackets = ["#b2a27b", "#6a9391", "#ba8467"];
+    for (let i = 0; i < 3; i++) {
+      const x = 48 + i * 144;
+      ctx.fillStyle = jackets[i];
+      ctx.fillRect(x, 164 + i * 6, 128, 204 - i * 6);
+      ctx.fillStyle = "rgba(20,40,42,.3)";
+      ctx.fillRect(x + 8, 164 + i * 6, 5, 204 - i * 6);
+      ctx.strokeStyle = "#e1d3ac";
+      ctx.lineWidth = 2;
+      ctx.beginPath();
+      ctx.ellipse(x + 67, 252, 40, 56 - i * 10, i * 0.7, 0, Math.PI * 2);
+      ctx.stroke();
+      ctx.fillStyle = "#203d40";
+      ctx.font = "600 15px system-ui";
+      ctx.fillText(["HABITAT", "COLLECTION", "ORBITAL ATLAS"][i], x + 64, 338, 116);
+    }
+    ctx.fillStyle = "#b5a184";
+    ctx.fillRect(42, 377, 428, 7);
+  } else if (exchange) {
+    for (let i = 0; i < 2; i++) {
+      const x = 52 + i * 212;
+      ctx.fillStyle = i ? "#b2bba7" : "#d1bd95";
+      ctx.fillRect(x, 156, 194, 225);
+      ctx.fillStyle = "#2a4848";
+      ctx.font = "600 23px system-ui";
+      ctx.fillText(i ? "GROWERS" : "REPAIR / REUSE", x + 97, 196, 178);
+      ctx.font = "17px system-ui";
+      ctx.fillText(i ? "LOCAL CO-OP" : "DISTRICT WORKSHOP", x + 97, 226, 178);
+      for (let line = 0; line < 5; line++) {
+        ctx.fillStyle = "rgba(31,57,56,.35)";
+        ctx.fillRect(x + 20, 254 + line * 21, 154 - (line % 2) * 28, 4);
+      }
+    }
+  } else {
+    // Etched identity glass and mail-slot graphic, not an opening in the solid.
+    ctx.fillStyle = "#9aab9e";
+    ctx.fillRect(48, 150, 180, 240);
+    ctx.fillStyle = "#647e78";
+    for (let fold = 0; fold < 7; fold++) {
+      ctx.fillRect(54 + fold * 25, 150, 5, 240);
+    }
+    for (let slot = 0; slot < 6; slot++) {
+      const x = 254 + (slot % 2) * 102;
+      const y = 156 + Math.floor(slot / 2) * 78;
+      ctx.fillStyle = "#8b8c79";
+      ctx.fillRect(x, y, 92, 65);
+      ctx.fillStyle = "#253e40";
+      ctx.fillRect(x + 10, y + 19, 72, 5);
+      ctx.fillStyle = "#dfd3b2";
+      ctx.fillRect(x + 34, y + 40, 25, 7);
+    }
+  }
+  ctx.fillStyle = "rgba(207,231,224,.1)";
+  ctx.beginPath();
+  ctx.moveTo(32, 132);
+  ctx.lineTo(178, 132);
+  ctx.lineTo(378, 412);
+  ctx.lineTo(300, 412);
+  ctx.closePath();
+  ctx.fill();
+  ctx.fillStyle = "#e4d7b8";
+  ctx.font = "16px system-ui";
+  ctx.fillText(library ? "EXTERIOR DISPLAY · ARCHIVE PASS REQUIRED" : exchange ? "EXTERIOR DISPLAY · BADGE ACCESS ONLY" : "PRIVATE ACCESS · NO PUBLIC ENTRY", 256, 459, 448);
+  const texture = new THREE.CanvasTexture(canvas);
+  texture.colorSpace = THREE.SRGBColorSpace;
+  texture.anisotropy = 4;
+  return new THREE.MeshStandardMaterial({
+    map: texture,
+    roughness: 0.64,
+    metalness: 0.14,
+    // Panels sit exactly on the radial side wall, within the solid footprint.
+    polygonOffset: true,
+    polygonOffsetFactor: -1,
+    polygonOffsetUnits: -2,
+  });
+}
 
 /**
  * Creates the streets, civic plaza, mid-rise architecture, landscaping, and wayfinding
  * for Meridian Civic District.
  *
  * @param {THREE.Object3D} parent
- * @returns {{ obstacles: Array<{ theta: number, y: number, width: number, depth: number, height: number, base: number }> }}
+ * @returns {{ obstacles: Array<{ theta: number, y: number, width: number, depth: number, height: number, base: number }>, update: (dt: number) => void }}
  */
 export function createCityStreets(parent) {
   const districtGroup = new THREE.Group();
@@ -28,13 +133,13 @@ export function createCityStreets(parent) {
   // ==========================================
   const mats = {
     // Facades with procedural window textures
-    libraryFacade: createFacadeMaterial("#ded6c6", "#1c3d44", 8, 8),
-    housingNorthFacade: createFacadeMaterial("#d4c9b8", "#23494e", 8, 10),
-    transitFacade: createFacadeMaterial("#ece7dd", "#1e525a", 9, 12),
-    housingSouthFacade: createFacadeMaterial("#cfbeaa", "#2a4c48", 7, 7),
-    housingEastFacade: createFacadeMaterial("#c8beae", "#284b4f", 7, 8),
-    commercialFacade: createFacadeMaterial("#b9a891", "#1f3a3c", 7, 8),
-    workshopFacade: createFacadeMaterial("#9c988e", "#2f484e", 6, 5),
+    libraryFacade: createFacadeMaterial("#ded6c6", "#1c3d44", 8, 8, "library"),
+    housingNorthFacade: createFacadeMaterial("#d4c9b8", "#23494e", 8, 10, "residential"),
+    transitFacade: createFacadeMaterial("#ece7dd", "#1e525a", 9, 12, "transit"),
+    housingSouthFacade: createFacadeMaterial("#cfbeaa", "#2a4c48", 7, 7, "residential"),
+    housingEastFacade: createFacadeMaterial("#c8beae", "#284b4f", 7, 8, "residential"),
+    commercialFacade: createFacadeMaterial("#b9a891", "#1f3a3c", 7, 8, "exchange"),
+    workshopFacade: createFacadeMaterial("#9c988e", "#2f484e", 6, 5, "workshop"),
 
     // Architectural Trim & Structure
     limestone: new THREE.MeshStandardMaterial({
@@ -699,6 +804,44 @@ export function createCityStreets(parent) {
     base: 0,
   });
 
+  // Street-facing display glass stays flush with existing solid side walls.
+  // All Y values remain local to Meridian; no access/collision geometry changes.
+  const libraryDisplay = createStreetDisplayMaterial("library");
+  const exchangeDisplay = createStreetDisplayMaterial("exchange");
+  const residentialDisplay = createStreetDisplayMaterial("residential");
+  const displays = [
+    [libGroup, libraryDisplay, "cityLibraryExhibitionSouth", -23, -28, 2.4, "east", 5.4, 2.8],
+    [libGroup, libraryDisplay, "cityLibraryExhibitionNorth", -23, -12, 2.4, "east", 5.4, 2.8],
+    [commGroup, exchangeDisplay, "cityExchangeDisplaySouth", 83, -14, 2.2, "west", 4.8, 2.4],
+    [commGroup, exchangeDisplay, "cityExchangeDisplayNorth", 83, 0, 2.2, "west", 4.8, 2.4],
+    [hNorthGroup, residentialDisplay, "cityResidentialEntranceNorth", -31, 65, 2.05, "east", 4.8, 2.2],
+    [hSouthGroup, residentialDisplay, "cityResidentialEntranceSouth", -27.5, -62, 2.05, "east", 4.8, 2.2],
+    [hEastGroup, residentialDisplay, "cityResidentialEntranceEast", 37, -49, 2.05, "west", 4.8, 2.2],
+  ];
+  for (const [group, material, name, s, y, h, facing, width, height] of displays) {
+    const panel = addOrientedPanel(
+      group,
+      material,
+      surfacePos(s / RADIUS, y, h),
+      facing,
+      width,
+      height,
+    );
+    panel.name = name;
+  }
+  // The existing bronze entrance fascia projects beyond the main wall.
+  // Put the central exhibit on that face, not hidden behind it under the canopy.
+  const libraryEntryDisplay = addOrientedPanel(
+    libGroup,
+    libraryDisplay,
+    surfacePos(-22.9 / RADIUS, -20, 2.05),
+    "east",
+    5.8,
+    2.5,
+  );
+  libraryEntryDisplay.name = "cityLibraryExhibitionEntry";
+  libraryEntryDisplay.translateZ(0.15);
+
   // ==========================================
   // 4. PLAZA CENTERPIECE & CIVIC WAYFINDING
   // Distinctive off-center monument & multi-route directories
@@ -721,6 +864,8 @@ export function createCityStreets(parent) {
   monumentsGroup.add(sphereMesh);
 
   const ringGroup = new THREE.Group();
+  ringGroup.name = "cityArmillaryRings";
+  ringGroup.userData.atmosphereDynamic = true;
   ringGroup.applyMatrix4(
     setSurfaceMatrix(tempMatrix, 12 / RADIUS, -5, 4.55, 1, 1, 1),
   );
@@ -728,6 +873,7 @@ export function createCityStreets(parent) {
     new THREE.TorusGeometry(1.4, 0.08, 8, 24),
     mats.tealMetal,
   );
+  ringMesh1.name = "cityArmillaryRingTeal";
   ringMesh1.rotation.set(Math.PI / 4, 0, 0);
   ringGroup.add(ringMesh1);
 
@@ -735,6 +881,7 @@ export function createCityStreets(parent) {
     new THREE.TorusGeometry(1.7, 0.08, 8, 24),
     mats.brassAccent,
   );
+  ringMesh2.name = "cityArmillaryRingBrass";
   ringMesh2.rotation.set(-Math.PI / 4, Math.PI / 3, 0);
   ringGroup.add(ringMesh2);
   monumentsGroup.add(ringGroup);
@@ -1193,5 +1340,14 @@ export function createCityStreets(parent) {
   furnitureGroup.add(lampPostMesh);
   furnitureGroup.add(lampLuminaireMesh);
 
-  return { obstacles };
+  function update(dt) {
+    // Accumulate simulation deltas only: pause/zero-step never resets the pose.
+    if (!Number.isFinite(dt) || dt <= 0) return;
+    ringMesh1.rotation.z += dt * 0.045;
+    ringMesh1.rotation.y += dt * 0.025;
+    ringMesh2.rotation.z -= dt * 0.033;
+    ringMesh2.rotation.x += dt * 0.02;
+  }
+
+  return { obstacles, update };
 }
