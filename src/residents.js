@@ -1041,6 +1041,58 @@ const RESIDENT_CONFIGS = [
 // -----------------------------------------------------------------------------
 // Resident Assembly
 // -----------------------------------------------------------------------------
+function createViewingArm(arm, forearm, hand, side, opticsBounds) {
+  const handBounds = hand.geometry.boundingBox;
+  return {
+    arm,
+    forearm,
+    side,
+    upperLength: forearm.position.length(),
+    lowerLength: hand.position.length(),
+    contact: new THREE.Vector3(
+      (side < 0 ? opticsBounds.min.x : opticsBounds.max.x)
+        + side * (handBounds.max.x - handBounds.min.x) * 0.25,
+      0,
+      0,
+    ),
+  };
+}
+
+function poseViewingArm(grip, limb, rest) {
+  const { arm, forearm, upperLength, lowerLength } = limb;
+  // The gait writes X each frame; discard the previous solve's other Euler axes
+  // before blending quaternions, including when the rest envelope reaches zero.
+  arm.rotation.set(arm.rotation.x, 0, 0);
+  forearm.rotation.set(forearm.rotation.x, 0, 0);
+  if (rest === 0) return;
+
+  // Solve the fully raised pose, then blend the joints once. Solving against
+  // the already-lowering optics folds the chain through a twist branch midway
+  // through the envelope and can flip the shortest quaternion interpolation.
+  const target = grip.target.copy(limb.contact)
+    .applyQuaternion(grip.viewingQuaternion).add(grip.viewingPosition);
+  const direction = grip.direction.subVectors(target, arm.position);
+  const distance = direction.length();
+  direction.multiplyScalar(1 / distance);
+  const along = (upperLength * upperLength - lowerLength * lowerLength
+    + distance * distance) / (2 * distance);
+  const bend = Math.sqrt(Math.max(0, upperLength * upperLength - along * along));
+  // Project an outward/downward elbow pole onto the target's perpendicular
+  // plane. This keeps the elbows below the optics and away from the face.
+  const pole = grip.pole.set(limb.side * 0.5, 0, -1);
+  pole.addScaledVector(direction, -pole.dot(direction)).normalize();
+  const elbow = grip.elbow.copy(arm.position)
+    .addScaledVector(direction, along).addScaledVector(pole, bend);
+  grip.upperDirection.subVectors(elbow, arm.position).normalize();
+  grip.lowerDirection.subVectors(target, elbow).normalize();
+  grip.upperQuaternion.setFromUnitVectors(grip.down, grip.upperDirection);
+  grip.lowerQuaternion.setFromUnitVectors(grip.down, grip.lowerDirection);
+  grip.inverseUpper.copy(grip.upperQuaternion).invert();
+  grip.lowerQuaternion.premultiply(grip.inverseUpper);
+  arm.quaternion.slerp(grip.upperQuaternion, rest);
+  forearm.quaternion.slerp(grip.lowerQuaternion, rest);
+}
+
 function buildResident(cfg, residentsGroup) {
   const root = new THREE.Group();
   root.name = cfg.id;
@@ -1152,6 +1204,7 @@ function buildResident(cfg, residentsGroup) {
   leftForearm.add(leftForearmMesh);
 
   const leftHandMesh = new THREE.Mesh(geoHand, cfg.skin);
+  leftHandMesh.name = "hand-left";
   leftHandMesh.position.set(0, 0, -0.27);
   leftForearm.add(leftHandMesh);
 
@@ -1175,6 +1228,7 @@ function buildResident(cfg, residentsGroup) {
   rightForearm.add(rightForearmMesh);
 
   const rightHandMesh = new THREE.Mesh(geoHand, cfg.skin);
+  rightHandMesh.name = "hand-right";
   rightHandMesh.position.set(0, 0, -0.27);
   rightForearm.add(rightHandMesh);
 
@@ -1194,10 +1248,12 @@ function buildResident(cfg, residentsGroup) {
   head.add(headMesh);
 
   const leftEye = new THREE.Mesh(geoEye, matEye);
+  leftEye.name = "eye-left";
   leftEye.position.set(-0.05, 0.105, 0.02);
   head.add(leftEye);
 
   const rightEye = new THREE.Mesh(geoEye, matEye);
+  rightEye.name = "eye-right";
   rightEye.position.set(0.05, 0.105, 0.02);
   head.add(rightEye);
 
@@ -1220,6 +1276,43 @@ function buildResident(cfg, residentsGroup) {
   const satchel = torso.getObjectByName("satchel") || null;
   const briefcase = torso.getObjectByName("briefcase") || null;
   const binoculars = torso.getObjectByName("binoculars") || null;
+  let viewingGrip = null;
+  if (binoculars) {
+    for (const geometry of [binoculars.geometry, leftEye.geometry, leftHandMesh.geometry]) {
+      if (!geometry.boundingBox) geometry.computeBoundingBox();
+    }
+    const opticsBounds = binoculars.geometry.boundingBox;
+    const eyeBounds = leftEye.geometry.boundingBox;
+    const eyeOffset = new THREE.Vector3().addVectors(leftEye.position, rightEye.position)
+      .multiplyScalar(0.5);
+    eyeOffset.x += (eyeBounds.min.x + eyeBounds.max.x
+      - opticsBounds.min.x - opticsBounds.max.x) * 0.5;
+    eyeOffset.z += (eyeBounds.min.z + eyeBounds.max.z
+      - opticsBounds.min.z - opticsBounds.max.z) * 0.5;
+    // Leave one eye-depth of air ahead of the actual front eye plane. The rear
+    // housing thus clears the nose while the eyes align inside its X/Z extents.
+    eyeOffset.y += eyeBounds.max.y - opticsBounds.min.y
+      + eyeBounds.max.z - eyeBounds.min.z;
+    viewingGrip = {
+      viewingQuaternion: head.quaternion,
+      eyeOffset,
+      walkingPosition: binoculars.position.clone(),
+      walkingQuaternion: binoculars.quaternion.clone(),
+      viewingPosition: new THREE.Vector3(),
+      left: createViewingArm(leftArm, leftForearm, leftHandMesh, -1, opticsBounds),
+      right: createViewingArm(rightArm, rightForearm, rightHandMesh, 1, opticsBounds),
+      target: new THREE.Vector3(),
+      direction: new THREE.Vector3(),
+      pole: new THREE.Vector3(),
+      elbow: new THREE.Vector3(),
+      upperDirection: new THREE.Vector3(),
+      lowerDirection: new THREE.Vector3(),
+      down: new THREE.Vector3(0, 0, -1),
+      upperQuaternion: new THREE.Quaternion(),
+      lowerQuaternion: new THREE.Quaternion(),
+      inverseUpper: new THREE.Quaternion(),
+    };
+  }
 
   if (cfg.static) {
     const height = cfg.height || 0;
@@ -1285,6 +1378,7 @@ function buildResident(cfg, residentsGroup) {
     satchel,
     briefcase,
     binoculars,
+    viewingGrip,
     poseElapsed: 0,
     leftThigh,
     rightThigh,
@@ -1504,24 +1598,16 @@ export function createResidents(parent) {
         res.torso.rotation.x = rest * 0.018 * Math.sin(clock * 0.8);
 
         if (viewing) {
-          // Elbows fold upward while shoulders raise the existing optics to the
-          // eyes. Small shared scans keep the glasses aligned with the gaze.
-          res.leftArm.rotation.x += rest * 1.4;
-          res.rightArm.rotation.x += rest * 1.4;
-          res.leftArm.rotation.y = -rest * 0.18;
-          res.rightArm.rotation.y = rest * 0.18;
-          res.leftForearm.rotation.x += rest * 1.73;
-          res.rightForearm.rotation.x += rest * 1.73;
-          const yaw = res.head.rotation.z;
-          const pitch = res.head.rotation.x;
-          res.binoculars.position.set(
-            -rest * Math.sin(yaw) * 0.2,
-            0.12 + rest * (Math.cos(yaw) * Math.cos(pitch) * 0.2
-              - Math.sin(pitch) * 0.02 - 0.12),
-            0.28 + rest * (0.61 + Math.cos(yaw) * Math.sin(pitch) * 0.2
-              + Math.cos(pitch) * 0.02 - 0.28),
+          const grip = res.viewingGrip;
+          grip.viewingPosition.copy(grip.eyeOffset)
+            .applyQuaternion(res.head.quaternion).add(res.head.position);
+          res.binoculars.position.lerpVectors(
+            grip.walkingPosition, grip.viewingPosition, rest,
           );
-          res.binoculars.rotation.set(rest * pitch, 0, rest * yaw);
+          res.binoculars.quaternion.copy(grip.walkingQuaternion)
+            .slerp(res.head.quaternion, rest);
+          poseViewingArm(grip, grip.left, rest);
+          poseViewingArm(grip, grip.right, rest);
         } else if (res.satchel || res.briefcase) {
           // A restrained belongings check, rather than an unrelated new prop.
           const reach = rest * consult;

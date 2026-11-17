@@ -1,6 +1,6 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { Scene } from "three";
+import { Quaternion, Scene } from "three";
 import { createResidents } from "../src/residents.js";
 import { RADIUS } from "../src/habitat.js";
 import { CARETAKER } from "../src/maintenance-layout.js";
@@ -11,7 +11,7 @@ test("resident limbs remain continuous across route lap boundaries with articula
   const scene = new Scene();
   const residents = createResidents(scene);
   const poses = [];
-  scene.traverse((node) => poses.push({ node, previous: node.rotation.x }));
+  scene.traverse((node) => poses.push({ node, previous: node.quaternion.clone() }));
 
   const walkers = residents.residents
     .filter((r) => !r.isStatic)
@@ -47,12 +47,11 @@ test("resident limbs remain continuous across route lap boundaries with articula
   for (let frame = 0; frame < 120 * 60; frame++) {
     residents.update(dt, frame * dt);
     for (const pose of poses) {
-      const angle = pose.node.rotation.x;
       largestFrameChange = Math.max(
         largestFrameChange,
-        Math.abs(angle - pose.previous),
+        pose.node.quaternion.angleTo(pose.previous),
       );
-      pose.previous = angle;
+      pose.previous.copy(pose.node.quaternion);
     }
     for (const w of walkers) {
       const { r } = w;
@@ -366,6 +365,35 @@ function transformSnapshot(root) {
   return values;
 }
 
+function assertBinocularFit(actor) {
+  const optics = actor.binoculars;
+  if (!optics.geometry.boundingBox) optics.geometry.computeBoundingBox();
+  const box = optics.geometry.boundingBox;
+  const centerInOptics = (name) => {
+    const mesh = actor.root.getObjectByName(name);
+    assert.ok(mesh?.isMesh, `${actor.cfg.id} has its authored ${name} mesh`);
+    if (!mesh.geometry.boundingBox) mesh.geometry.computeBoundingBox();
+    const center = mesh.geometry.boundingBox.getCenter(optics.position.clone());
+    return optics.worldToLocal(mesh.localToWorld(center));
+  };
+  for (const side of ["left", "right"]) {
+    const hand = centerInOptics(`hand-${side}`);
+    assert.ok(box.distanceToPoint(hand) <= 0.055,
+      `${side} hand must contact the optics throughout the scan`);
+    assert.ok(side === "left" ? hand.x < -0.035 : hand.x > 0.035,
+      `${side} hand must grip its own side of the optics`);
+    const eye = centerInOptics(`eye-${side}`);
+    const relief = box.min.y - eye.y;
+    assert.ok(relief >= 0.01 && relief <= 0.08,
+      `${side} eye must sit 1–8 cm behind the real rear face (got ${relief})`);
+    assert.ok(eye.x >= box.min.x && eye.x <= box.max.x
+      && (side === "left" ? eye.x < 0 : eye.x > 0),
+    `${side} eye must align laterally with its optical aperture`);
+    assert.ok(eye.z >= box.min.z && eye.z <= box.max.z,
+      `${side} eye must align vertically with the optical aperture`);
+  }
+}
+
 test("city dwell gestures animate existing belongings and eyes without moving planted feet", () => {
   const scene = new Scene();
   const controller = createResidents(scene);
@@ -405,15 +433,7 @@ test("city dwell gestures animate existing belongings and eyes without moving pl
         sample.minProp = Math.min(sample.minProp, prop.rotation.x);
         sample.maxProp = Math.max(sample.maxProp, prop.rotation.x);
       }
-      if (r.binoculars) {
-        assert.ok(r.leftArm.rotation.x > 1.3 && r.rightArm.rotation.x > 1.3);
-        assert.ok(r.leftForearm.rotation.x > 1.5 && r.rightForearm.rotation.x > 1.5);
-        const eyeOffset = r.head.position.clone().add(
-          r.head.position.clone().set(0, 0.2, 0.02).applyQuaternion(r.head.quaternion),
-        );
-        assert.ok(r.binoculars.position.distanceTo(eyeOffset) < 1e-9, "optics follow the eyes");
-        assert.ok(r.binoculars.quaternion.angleTo(r.head.quaternion) < 1e-7);
-      }
+      if (r.binoculars) assertBinocularFit(r);
     }
   }
   for (const r of city) {
@@ -440,19 +460,39 @@ test("all city upper-body channels blend continuously through dwells and route w
     distance: r.distance,
     wraps: 0,
     previous: null,
+    previousState: r.dwellState,
+    viewingDwells: 0,
+    viewingPhases: new Set(),
   }));
   let peakChange = 0;
+  let peakAngularChange = 0;
+  const currentRotation = new Quaternion();
+  const previousRotation = new Quaternion();
   for (let frame = 0; frame < 125 * 60; frame++) {
     controller.update(1 / 60, frame / 60);
     for (const history of histories) {
       const { r } = history;
+      if (r.binoculars && r.dwellState === "dwelling") {
+        assertBinocularFit(r);
+        if (history.previousState !== "dwelling") history.viewingDwells++;
+        history.viewingPhases.add(Math.floor(r.dwellElapsed));
+      }
+      history.previousState = r.dwellState;
       const pose = [
         ...transformSnapshot(r.torso),
         r.body.position.z,
       ];
       if (history.previous) {
         for (let i = 0; i < pose.length; i++) {
-          peakChange = Math.max(peakChange, Math.abs(pose[i] - history.previous[i]));
+          // Each transform contains position (3), quaternion (4), scale (3).
+          if (i % 10 === 3) {
+            peakAngularChange = Math.max(peakAngularChange,
+              currentRotation.fromArray(pose, i)
+                .angleTo(previousRotation.fromArray(history.previous, i)));
+            i += 3;
+          } else {
+            peakChange = Math.max(peakChange, Math.abs(pose[i] - history.previous[i]));
+          }
         }
       }
       if (r.distance < history.distance) history.wraps++;
@@ -462,8 +502,16 @@ test("all city upper-body channels blend continuously through dwells and route w
     }
   }
   assert.ok(peakChange < 0.065, `upper-body frame discontinuity: ${peakChange}`);
-  for (const { r, states, wraps } of histories) {
+  assert.ok(peakAngularChange < 0.1,
+    `upper-body angular discontinuity: ${peakAngularChange} radians`);
+  for (const { r, states, wraps, viewingDwells, viewingPhases } of histories) {
     assert.ok(wraps > 0, `${r.cfg.id} traverses a route wrap`);
+    if (r.binoculars) {
+      assert.ok(viewingDwells >= 2, "observer fit survives multiple route-loop dwells");
+      for (let phase = 0; phase < r.dwells[0].duration; phase++) {
+        assert.ok(viewingPhases.has(phase), `observer fit covers dwell second ${phase}`);
+      }
+    }
     for (const state of ["walking", "settling", "dwelling", "resuming"]) {
       assert.ok(states.has(state), `${r.cfg.id} traverses ${state}`);
     }

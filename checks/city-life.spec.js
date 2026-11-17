@@ -24,6 +24,35 @@ test("Meridian dwell gestures and armillary animate on simulation time, keep anc
       ));
       return values;
     };
+    const currentRotation = actors[0].root.quaternion.clone();
+    const previousRotation = currentRotation.clone();
+    const assertBinocularFit = (actor) => {
+      const optics = actor.binoculars;
+      if (!optics.geometry.boundingBox) optics.geometry.computeBoundingBox();
+      const box = optics.geometry.boundingBox;
+      const centerInOptics = (name) => {
+        const mesh = actor.root.getObjectByName(name);
+        if (!mesh?.isMesh) throw new Error(`Missing authored ${name} on ${actor.cfg.id}`);
+        if (!mesh.geometry.boundingBox) mesh.geometry.computeBoundingBox();
+        const center = mesh.geometry.boundingBox.getCenter(optics.position.clone());
+        return optics.worldToLocal(mesh.localToWorld(center));
+      };
+      for (const side of ["left", "right"]) {
+        const hand = centerInOptics(`hand-${side}`);
+        if (box.distanceToPoint(hand) > 0.055
+          || !(side === "left" ? hand.x < -0.035 : hand.x > 0.035)) {
+          throw new Error(`${side} hand loses its optics grip at dwell ${actor.dwellElapsed}`);
+        }
+        const eye = centerInOptics(`eye-${side}`);
+        const relief = box.min.y - eye.y;
+        if (!(relief >= 0.01 && relief <= 0.08)
+          || !(eye.x >= box.min.x && eye.x <= box.max.x)
+          || !(side === "left" ? eye.x < 0 : eye.x > 0)
+          || !(eye.z >= box.min.z && eye.z <= box.max.z)) {
+          throw new Error(`${side} eye misses the rear aperture at dwell ${actor.dwellElapsed}`);
+        }
+      }
+    };
     const ringStart = rings.map((r) => r.quaternion.clone());
     const ringAnchor = snapshot(assembly).slice(0, 10);
     const mara = f.scene.getObjectByName("caretaker-mara");
@@ -32,8 +61,10 @@ test("Meridian dwell gestures and armillary animate on simulation time, keep anc
       id: r.cfg.id, minHead: Infinity, maxHead: -Infinity,
       minElbow: Infinity, maxElbow: -Infinity,
       minProp: Infinity, maxProp: -Infinity,
-      footError: 0, poseChange: 0, previous: null, feet: null,
-      dwellFrames: 0, pauseFrozen: true, image: null,
+      footError: 0, poseChange: 0, angularChange: 0, previous: null, feet: null,
+      dwellFrames: 0, pauseFrozen: true, image: null, scanImage: null,
+      opticFrames: 0, opticPhases: [],
+      viewingDuration: r.binoculars ? r.dwells[0].duration : 0,
     }));
     const renderedSpreads = [];
     const renderView = (frame, position, target, fov = 46) => {
@@ -62,16 +93,23 @@ test("Meridian dwell gestures and armillary animate on simulation time, keep anc
     };
     let maxAnchorError = 0;
     let maxFootHeightError = 0;
-    let opticError = 0;
     for (let frame = 0; frame < 30 * 60; frame++) {
       f.step(1 / 60);
       for (let index = 0; index < actors.length; index++) {
         const r = actors[index];
         const sample = samples[index];
-        const pose = snapshot(r.torso);
+        const pose = [...snapshot(r.torso), r.body.position.z];
         if (sample.previous) {
           for (let i = 0; i < pose.length; i++) {
-            sample.poseChange = Math.max(sample.poseChange, Math.abs(pose[i] - sample.previous[i]));
+            // Each transform contains position (3), quaternion (4), scale (3).
+            if (i % 10 === 3) {
+              sample.angularChange = Math.max(sample.angularChange,
+                currentRotation.fromArray(pose, i)
+                  .angleTo(previousRotation.fromArray(sample.previous, i)));
+              i += 3;
+            } else {
+              sample.poseChange = Math.max(sample.poseChange, Math.abs(pose[i] - sample.previous[i]));
+            }
           }
         }
         sample.previous = pose;
@@ -98,16 +136,17 @@ test("Meridian dwell gestures and armillary animate on simulation time, keep anc
           sample.maxProp = Math.max(sample.maxProp, prop.rotation.x);
         }
         if (r.binoculars) {
-          const eye = r.head.position.clone().add(
-            r.head.position.clone().set(0, 0.2, 0.02).applyQuaternion(r.head.quaternion),
-          );
-          opticError = Math.max(opticError, eye.distanceTo(r.binoculars.position));
-          if (r.leftArm.rotation.x < 1.3 || r.rightForearm.rotation.x < 1.5) {
-            throw new Error("Observer must support its raised binoculars with bent arms");
+          assertBinocularFit(r);
+          sample.opticFrames++;
+          sample.opticPhases[Math.floor(r.dwellElapsed)] = true;
+          if (!sample.scanImage && r.dwellElapsed >= 4) {
+            sample.scanImage = renderView(r.heading, [-1.0, 1.8, 1.9], [0, 0.1, 1.35], 38);
           }
         }
-        if (!sample.image && r.dwellElapsed >= 2) {
-          sample.image = renderView(r.heading, [2.4, 3.2, 2.0], [0, 0, 1.0]);
+        if (!sample.image && r.dwellElapsed >= (r.binoculars ? 1 : 2)) {
+          sample.image = r.binoculars
+            ? renderView(r.heading, [1.0, 1.8, 1.9], [0, 0.1, 1.35], 38)
+            : renderView(r.heading, [2.4, 3.2, 2.0], [0, 0, 1.0]);
           const before = JSON.stringify(snapshot(r.root));
           f.world.update(0, 1e15, f.player.getState({}));
           sample.pauseFrozen = before === JSON.stringify(snapshot(r.root));
@@ -137,7 +176,7 @@ test("Meridian dwell gestures and armillary animate on simulation time, keep anc
     );
     return {
       samples: samples.map(({ previous, feet, ...sample }) => sample),
-      maxAnchorError, maxFootHeightError, opticError, ringMotion, ringAnchorError, renderedSpreads,
+      maxAnchorError, maxFootHeightError, ringMotion, ringAnchorError, renderedSpreads,
       ringAnchorStable: JSON.stringify(ringAnchor) === JSON.stringify(snapshot(assembly).slice(0, 10)),
       maraStable: JSON.stringify(maraStart) === JSON.stringify(snapshot(mara)),
       pauseFrozen, ringShadow, cityImage,
@@ -148,7 +187,6 @@ test("Meridian dwell gestures and armillary animate on simulation time, keep anc
   expect(errors).toEqual([]);
   expect(result.maxAnchorError).toBeLessThan(1e-9);
   expect(result.maxFootHeightError).toBeLessThan(1e-8);
-  expect(result.opticError).toBeLessThan(1e-8);
   expect(result.maraStable).toBe(true);
   expect(result.pauseFrozen).toBe(true);
   expect(result.ringAnchorStable).toBe(true);
@@ -166,10 +204,20 @@ test("Meridian dwell gestures and armillary animate on simulation time, keep anc
     expect(sample.maxHead - sample.minHead, sample.id).toBeGreaterThan(0.1);
     expect(sample.footError, sample.id).toBeLessThan(1e-9);
     expect(sample.poseChange, sample.id).toBeLessThan(0.065);
+    expect(sample.angularChange, sample.id).toBeLessThan(0.1);
     expect(sample.pauseFrozen, sample.id).toBe(true);
     if (sample.id === "resident-plaza" || sample.id === "resident-lobby") {
       expect(sample.maxProp - sample.minProp, sample.id).toBeGreaterThan(0.02);
       expect(sample.maxElbow - sample.minElbow, sample.id).toBeGreaterThan(0.1);
+    }
+    if (sample.viewingDuration) {
+      expect(sample.opticFrames, sample.id).toBe(sample.dwellFrames);
+      expect(sample.opticPhases, sample.id).toEqual(Array(sample.viewingDuration).fill(true));
+      expect(sample.maxProp - sample.minProp, sample.id).toBeGreaterThan(0.01);
+      expect(sample.scanImage, sample.id).toMatch(/^data:image\/png;base64,/);
+      await testInfo.attach(`${sample.id}-actual-scan-late`, {
+        body: Buffer.from(sample.scanImage.split(",")[1], "base64"), contentType: "image/png",
+      });
     }
     expect(sample.image, sample.id).toMatch(/^data:image\/png;base64,/);
     await testInfo.attach(`${sample.id}-actual-dwell`, {
