@@ -1,5 +1,7 @@
 import { defineConfig, devices } from "@playwright/test";
 
+const realGpu = process.env.HABITAT_REAL_GPU === "1";
+
 export default defineConfig({
   testDir: "checks",
   testMatch: "*.spec.js",
@@ -16,13 +18,16 @@ export default defineConfig({
       use: {
         ...devices["Desktop Chrome"],
         headless: true,
+        channel: realGpu ? "chromium" : undefined,
         launchOptions: {
-          args: [
-            "--use-gl=angle",
-            "--use-angle=swiftshader",
-            "--enable-unsafe-swiftshader",
-            "--ignore-gpu-blocklist",
-          ],
+          args: realGpu
+            ? []
+            : [
+                "--use-gl=angle",
+                "--use-angle=swiftshader",
+                "--enable-unsafe-swiftshader",
+                "--ignore-gpu-blocklist",
+              ],
         },
       },
     },

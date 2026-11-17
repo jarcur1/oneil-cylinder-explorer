@@ -142,15 +142,25 @@
       </div>
       <div class="hud-cards">
         <aside id="mission" class="hud-panel" hidden>
-          <p class="eyebrow">HABITAT WALK <span id="progress">0 / 11</span></p>
+          <button id="discovery-toggle" type="button" class="hud-toggle" aria-expanded="false" aria-controls="discovery-details" aria-keyshortcuts="H">
+            <span>HABITAT WALK <kbd>H</kbd></span><span id="progress">0 / 11</span>
+          </button>
+          <p id="discovery-summary" class="hud-summary"></p>
+          <div id="discovery-details" role="region" aria-labelledby="discovery-toggle" hidden>
           <h2>A world that works.</h2>
           <p class="mission-copy">Explore the neighborhoods and their engineering spine.</p>
           <ol id="landmarks"></ol>
           <p id="objective" class="objective">
             Take the radial lift toward the Endcap A maintenance hub.
           </p>
+          </div>
         </aside>
-        <div class="job-stack">
+        <div class="job-stack" hidden>
+          <button id="jobs-toggle" type="button" class="hud-toggle" aria-expanded="false" aria-controls="jobs-details" aria-keyshortcuts="J">
+            <span>JOBS <kbd>J</kbd></span><span class="hud-toggle-cue" aria-hidden="true">DETAILS</span>
+          </button>
+          <p id="jobs-summary" class="hud-summary"></p>
+          <div id="jobs-details" class="job-details" role="region" aria-labelledby="jobs-toggle" hidden>
           <p id="job-scroll-hint" class="jobs-scroll-hint" hidden>
             JOBS · WHEEL / PGUP / PGDN
           </p>
@@ -204,6 +214,7 @@
             </div>
             <p class="job-help"><kbd>E</kbd> Interact when you’re nearby.</p>
           </aside>
+          </div>
         </div>
       </div>
       <div id="interaction" class="interaction-prompt" hidden role="status">

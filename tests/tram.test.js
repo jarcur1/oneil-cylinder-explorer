@@ -401,3 +401,75 @@ test("last-window boarding/exit boundary (0.5s) and midpoint canCommitTransfer d
   );
   assert.equal(tram.canCommitTransfer("exit", "tram-gateway", aboard()), false);
 });
+
+test("station forecasts choose the next visit and its outbound terminal in both directions", () => {
+  const tram = createTramState();
+  const status = {};
+  assert.equal(tram.getStopStatus("tram-gateway", status), status);
+  assert.equal(status.docked, true);
+  assert.equal(status.arrivalIn, 0);
+  assert.equal(status.departureIn, 20);
+  assert.equal(status.boardingOpen, true);
+  assert.equal(status.destinationStationId, "tram-tower");
+  assert.ok(Math.abs(tram.getStopStatus("tram-market", {}).arrivalIn - (20 + 50 / 28)) < 1e-10);
+  tram.update(40);
+  const expectations = [
+    ["tram-gateway", 120.5, 1, "tram-tower"],
+    ["tram-market", 110 + 5 / 7, -1, "tram-gateway"],
+    ["tram-glasshouse", 101 + 3 / 7, -1, "tram-gateway"],
+    ["tram-plaza", 30 + 3 / 28, 1, "tram-tower"],
+    ["tram-tower", 40.25, -1, "tram-gateway"],
+  ];
+  for (const [id, arrival, direction, terminal] of expectations) {
+    const forecast = tram.getStopStatus(id, status);
+    assert.equal(forecast.stationId, id);
+    assert.equal(forecast.docked, false);
+    assert.equal(forecast.boardingOpen, false);
+    assert.equal(forecast.departureIn, 0);
+    assert.ok(Math.abs(forecast.arrivalIn - arrival) < 1e-10, id);
+    assert.equal(forecast.direction, direction, id);
+    assert.equal(forecast.destinationStationId, terminal, id);
+  }
+  tram.update(40.25);
+  tram.getStopStatus("tram-tower", status);
+  assert.equal(status.docked, true);
+  assert.equal(status.arrivalIn, 0);
+  assert.equal(status.departureIn, 20);
+  assert.equal(status.direction, -1);
+  assert.equal(status.destinationStationId, "tram-gateway");
+  assert.equal(tram.getState({}).destinationStationId, "tram-gateway");
+});
+
+test("forecast reads do not advance service and preserve closing, commit, wrap and scratch contracts", () => {
+  const tram = createTramState();
+  const snapshot = tram.getState({});
+  const scratch = { untouched: "keep" };
+  assert.equal(tram.getStopStatus("missing", scratch), null);
+  assert.deepEqual(scratch, { untouched: "keep" });
+  for (const stop of TRAM_STOPS) tram.getStopStatus(stop.id, scratch);
+  scratch.arrivalIn = -100;
+  assert.equal(tram.getStopStatus("tram-gateway", scratch).arrivalIn, 0);
+  assert.deepEqual(tram.getState({}), snapshot);
+  tram.update(19.5);
+  assert.equal(tram.getStopStatus("tram-gateway", scratch).boardingOpen, true);
+  tram.update(0.16);
+  assert.equal(tram.getStopStatus("tram-gateway", scratch).boardingOpen, false);
+  assert.equal(scratch.arrivalIn, 0);
+  assert.equal(scratch.docked, true);
+  assert.equal(tram.canCommitTransfer("board", "tram-gateway", atStop(TRAM_STOPS[0])), true);
+  tram.update(0.34);
+  assert.equal(tram.getStopStatus("tram-gateway", scratch).docked, false);
+  assert.ok(Math.abs(scratch.arrivalIn - 140.5) < 1e-10);
+  tram.update(140.49);
+  assert.ok(Math.abs(tram.getStopStatus("tram-gateway", scratch).arrivalIn - 0.01) < 1e-10);
+  tram.update(0.01);
+  assert.equal(tram.getStopStatus("tram-gateway", scratch).docked, true);
+  assert.ok(Math.abs(scratch.departureIn - 20) < 1e-10);
+  const later = createTramState();
+  later.update(2 * 160.5 + 40);
+  const atForty = createTramState();
+  atForty.update(40);
+  for (const stop of TRAM_STOPS) {
+    assert.deepEqual(later.getStopStatus(stop.id, {}), atForty.getStopStatus(stop.id, {}));
+  }
+});

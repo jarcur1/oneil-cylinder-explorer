@@ -1628,7 +1628,9 @@ test("separated district geometry, colliders, job/service/lift targets, and live
           dropoffBlockedS,
           dropoffTargetS: layouts.DELIVERY_STATIONS.dropoff.s,
           dropoffPhase: dropoffRes?.phase ?? null,
-          completePhase: completeDeliveryView.phase,
+          nextRun: completeDeliveryView.id,
+          nextPhase: completeDeliveryView.phase,
+          seedPhase: world.delivery.getPhase(),
         },
         overlookState,
         maintenance: {
@@ -1714,7 +1716,9 @@ test("separated district geometry, colliders, job/service/lift targets, and live
       result.delivery.dropoffTargetS - 0.4,
     );
     expect(result.delivery.dropoffPhase).toBe("complete");
-    expect(result.delivery.completePhase).toBe("complete");
+    expect(result.delivery.seedPhase).toBe("complete");
+    expect(result.delivery.nextRun).toBe("produce");
+    expect(result.delivery.nextPhase).toBe("available");
     // Overlook deck support
     expect(result.overlookState.grounded).toBe(true);
     expect(Math.abs(result.overlookState.height - 2.16)).toBeLessThan(0.05);

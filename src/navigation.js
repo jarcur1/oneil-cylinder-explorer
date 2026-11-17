@@ -445,11 +445,6 @@ function resolveJobTarget(jobId, jobViews, scratch) {
   let name;
   if (typeof raw.name === "string" && raw.name) {
     name = raw.name;
-  } else if (jobId === "delivery") {
-    name =
-      view.phase === "carrying"
-        ? "Glasshouse 01 dropoff"
-        : "Heritage seed crate";
   } else if (jobId === "maintenance") {
     name =
       view.phase === "assigned" ? "Skywalk ventilation unit" : "Mara Voss";

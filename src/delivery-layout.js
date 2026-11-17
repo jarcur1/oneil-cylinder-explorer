@@ -1,4 +1,4 @@
-import { GREENWAY_PLACEMENT } from "./habitat.js";
+import { GREENWAY_PLACEMENT, MERIDIAN_PLACEMENT } from "./habitat.js";
 
 export const DELIVERY_STATIONS = Object.freeze({
   pickup: Object.freeze({
@@ -9,6 +9,15 @@ export const DELIVERY_STATIONS = Object.freeze({
   dropoff: Object.freeze({
     s: 67,
     y: GREENWAY_PLACEMENT.toWorldY(-214),
+    range: 3.2,
+  }),
+});
+
+export const SUPPLY_STATIONS = Object.freeze({
+  pickup: DELIVERY_STATIONS.dropoff,
+  dropoff: Object.freeze({
+    s: 18,
+    y: MERIDIAN_PLACEMENT.toWorldY(-11),
     range: 3.2,
   }),
 });

@@ -22,7 +22,7 @@ import {
 import { CITY_LIFT_STOPS, getCityLift } from "../src/city-transit.js";
 import { SUNLINE_TRANSFERS, getSunlineTransfer } from "../src/sunline-transit.js";
 import { TRAM_THETA, TRAM_HEIGHT, TRAM_STOPS } from "../src/tram-layout.js";
-import { DELIVERY_STATIONS } from "../src/delivery-layout.js";
+import { DELIVERY_STATIONS, SUPPLY_STATIONS } from "../src/delivery-layout.js";
 import { createDelivery } from "../src/delivery.js";
 import { createMaintenanceState } from "../src/maintenance-state.js";
 import { createSunlineState } from "../src/sunline-state.js";
@@ -562,6 +562,25 @@ test("live delivery, maintenance, and sunline jobs follow actual state/view adva
       });
       assert.equal(nav.getWaypoint(state(), views(state())).arrived, true);
       assert.equal(delivery.interact(state()).phase, "complete");
+      assert.equal(delivery.getPhase(), "complete");
+      assert.equal(delivery.getSupplyPhase(), "available");
+      assert.equal(delivery.getView(state()).inventory, "");
+      assert.equal(nav.getWaypoint(state(), views(state())).target.name, "Glasshouse 01 produce dispatch");
+      assert.equal(delivery.interact({ ...state(), grounded: false }), null);
+      assert.equal(delivery.interact({ ...state(), height: 13, traversalMode: "tram" }), null);
+      assert.equal(delivery.interact(state()).phase, "carrying");
+      assert.equal(delivery.getView(state()).inventory, "Fresh produce crate");
+      assert.equal(nav.getWaypoint(state(), views(state())).target.y, SUPPLY_STATIONS.dropoff.y);
+      player.teleport({
+        theta: SUPPLY_STATIONS.dropoff.s / RADIUS,
+        y: SUPPLY_STATIONS.dropoff.y,
+        height: 0,
+      });
+      assert.equal(delivery.interact({ ...state(), height: 9 }), null);
+      assert.equal(delivery.interact({ ...state(), y: state().y + 4 }), null);
+      assert.equal(delivery.interact(state()).phase, "complete");
+      assert.equal(delivery.getSupplyPhase(), "complete");
+      assert.equal(delivery.interact(state()), null);
       assert.equal(nav.getWaypoint(state(), views(state())), null);
 
       // Completed/visited destinations remain trackable after jobs complete

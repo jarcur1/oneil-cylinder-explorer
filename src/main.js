@@ -92,6 +92,12 @@ try {
     progress: $("progress"),
     landmarks: $("landmarks"),
     objective: $("objective"),
+    discoveryToggle: $("discovery-toggle"),
+    discoveryDetails: $("discovery-details"),
+    discoverySummary: $("discovery-summary"),
+    jobsToggle: $("jobs-toggle"),
+    jobsDetails: $("jobs-details"),
+    jobsSummary: $("jobs-summary"),
     jobScrollHint: $("job-scroll-hint"),
     job: $("job"),
     jobHelp: $("job").querySelector(".job-help"),
@@ -165,6 +171,7 @@ try {
   const waypointResult = {};
   const tramMapSnapshot = {};
   const tramHudSnapshot = {};
+  const tramStopSnapshot = {};
   const jobViews = {
     delivery: null,
     maintenance: null,
@@ -203,6 +210,29 @@ try {
     return compactHUD.matches ? ui.hudCards : ui.jobStack;
   }
 
+  function setHudExpanded(button, details, summary, expanded) {
+    setAttr(button, "aria-expanded", expanded);
+    setHidden(details, !expanded);
+    setHidden(summary, expanded);
+  }
+
+  function openJobs() {
+    setHudExpanded(ui.jobsToggle, ui.jobsDetails, ui.jobsSummary, true);
+  }
+
+  for (const [button, details, summary] of [
+    [ui.discoveryToggle, ui.discoveryDetails, ui.discoverySummary],
+    [ui.jobsToggle, ui.jobsDetails, ui.jobsSummary],
+  ]) {
+    button.addEventListener("click", () => {
+      if (fatalError || mapOpen) return;
+      setHudExpanded(button, details, summary, button.getAttribute("aria-expanded") !== "true");
+    });
+    button.addEventListener("keydown", (event) => {
+      if (event.code === "Space" || event.code === "Enter") event.stopPropagation();
+    });
+  }
+
   function updateSaveStatus() {
     const status = saveStore.getStatus();
     const text = !status.available
@@ -223,6 +253,7 @@ try {
     saveWritten = saveStore.save({
       discoveries: [...found],
       deliveryPhase: delivery.getPhase(),
+      supplyPhase: delivery.getSupplyPhase(),
       maintenancePhase: maintenance.getPhase(),
       sunlinePhase: sunline.getPhase(),
       muted: soundscape.getState().muted,
@@ -337,6 +368,8 @@ try {
       ui.mapBtn.disabled = true;
       if (habitatMap.isOpen()) habitatMap.close();
       setHidden(ui.pausePanel, true);
+      setHidden(ui.mission, true);
+      setHidden(ui.jobStack, true);
     }
     if (!playing) return;
     const showPanel =
@@ -437,6 +470,7 @@ try {
       setHidden(ui.pauseBtn, false);
       setHidden(ui.crosshair, false);
       setHidden(ui.mission, false);
+      setHidden(ui.jobStack, false);
       setHidden(ui.maintenance, false);
       setHidden(ui.sunlineJob, false);
       setHidden(ui.telemetry, false);
@@ -743,29 +777,20 @@ try {
         ? `${nearest.name} · ${Math.round(nearestDistance)} m. ${nearest.hint}`
         : "Habitat walk complete. Explore the endcaps, service spine, utility rooms, and neighborhoods.",
     );
+    setText(
+      ui.discoverySummary,
+      nearest ? `${nearest.name} · ${Math.round(nearestDistance)} m` : "All landmarks discovered.",
+    );
     const jobs = getJobViews(state);
     const job = jobs.delivery;
-    if (ui.job.dataset.phase !== job.phase) {
+    if (ui.job.dataset.phase !== job.phase || ui.job.dataset.run !== job.id) {
       ui.job.dataset.phase = job.phase;
+      ui.job.dataset.run = job.id;
       setClass(ui.job, "complete", job.phase === "complete");
       setText(ui.jobTitle, job.title);
       setText(ui.jobObjective, job.objective);
-      setText(
-        ui.jobProgress,
-        job.phase === "available"
-          ? "0 / 2"
-          : job.phase === "carrying"
-            ? "1 / 2"
-            : "2 / 2",
-      );
-      setText(
-        ui.jobStatus,
-        job.phase === "available"
-          ? "READY FOR PICKUP"
-          : job.phase === "carrying"
-            ? "DELIVER TO GLASSHOUSE 01"
-            : "DELIVERY COMPLETE",
-      );
+      setText(ui.jobProgress, job.progress);
+      setText(ui.jobStatus, job.status);
       setHidden(ui.jobHelp, job.phase === "complete");
     }
     setText(
@@ -802,6 +827,13 @@ try {
     setText(
       ui.sunlineDistrict,
       `${districtStatus.name} · ${districtStatus.status}`,
+    );
+    const tracking = navigation.getSelection();
+    const trackedJob = tracking?.kind === "job" ? jobs[tracking.id] : null;
+    const summaryJob = trackedJob || job;
+    setText(
+      ui.jobsSummary,
+      `${summaryJob.title} · ${summaryJob.status}${summaryJob.target ? ` · ${Math.round(summaryJob.distance)} m` : ""}`,
     );
     setData(ui.sunlineDistrict, "online", districtStatus.online);
     const reaction = residents.getReaction(state, lightJob.phase);
@@ -890,6 +922,7 @@ try {
       saveStore.save({
         discoveries: [],
         deliveryPhase: "available",
+        supplyPhase: "available",
         maintenancePhase: "available",
         sunlinePhase: "available",
         muted: soundscape.getState().muted,
@@ -930,8 +963,25 @@ try {
       return;
     }
     if (mapOpen || habitatMap.isOpen()) return;
+    if (
+      playing && !event.repeat && !event.ctrlKey && !event.metaKey && !event.altKey &&
+      (event.code === "KeyH" || event.code === "KeyJ") &&
+      !event.target?.closest?.("input, textarea, select, [contenteditable='true']")
+    ) {
+      event.preventDefault();
+      const discovery = event.code === "KeyH";
+      const button = discovery ? ui.discoveryToggle : ui.jobsToggle;
+      setHudExpanded(
+        button,
+        discovery ? ui.discoveryDetails : ui.jobsDetails,
+        discovery ? ui.discoverySummary : ui.jobsSummary,
+        button.getAttribute("aria-expanded") !== "true",
+      );
+      return;
+    }
     if (playing && (event.code === "PageUp" || event.code === "PageDown")) {
       event.preventDefault();
+      openJobs();
       const scroller = getJobScroller();
       scroller.scrollBy(
         0,
@@ -1025,7 +1075,16 @@ try {
       }
       if (tramAction?.kind === "inspect") {
         closeDialogue();
-        if (tramAction.message) showToast(tramAction.message, 5);
+        const status = tram.getStopStatus(tramAction.stationId, tramStopSnapshot);
+        if (!status) throw new Error(`Unknown tram station: ${tramAction.stationId}`);
+        const stop = TRAM_STOP_BY_ID.get(status.stationId);
+        const destination = TRAM_STOP_BY_ID.get(status.destinationStationId);
+        const service = !status.docked
+          ? `Arrives in ${Math.ceil(status.arrivalIn)} s`
+          : status.boardingOpen
+            ? `Boarding · departs in ${Math.ceil(status.departureIn)} s`
+            : "Doors closing · wait for the next service";
+        showToast(`${stop.name} · ${service} · To ${destination.name}`, 8);
         updateHUD();
       }
     } catch (error) {
@@ -1041,6 +1100,7 @@ try {
         document.pointerLockElement !== renderer.domElement
       )
         return;
+      openJobs();
       const scroller = getJobScroller();
       const scale =
         event.deltaMode === 1
