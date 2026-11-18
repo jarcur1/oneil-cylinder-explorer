@@ -100,6 +100,74 @@ test("jumping beneath a ceiling cannot push the head through it", () => {
   });
 });
 
+test("a shelf jump clamps the forehead to a broad ceiling without lateral ejection", () => {
+  const platform = {
+    theta: -46 / RADIUS,
+    y: -300,
+    width: 1.2,
+    depth: 7,
+    height: 2.75,
+  };
+  const ceiling = {
+    theta: -35 / RADIUS,
+    y: -307,
+    width: 24,
+    depth: 30,
+    base: 4.8,
+    height: 0.4,
+  };
+  const headLimit = ceiling.base - (EYE_HEIGHT + 0.15);
+  scenario([platform, ceiling], ({ player, key, state }) => {
+    player.teleport({
+      theta: platform.theta,
+      y: platform.y,
+      height: platform.height,
+    });
+    const initialTheta = state().theta;
+    assert.equal(state().grounded, true);
+    key("Space", true);
+    let highest = platform.height;
+    let touchedCeiling = false;
+    for (let frame = 0; frame < 120; frame++) {
+      player.update(1 / 60);
+      key("Space", false);
+      const pose = state();
+      highest = Math.max(highest, pose.height);
+      if (pose.height === headLimit) {
+        touchedCeiling = true;
+        assert.equal(pose.grounded, false);
+      }
+      assert.ok(pose.height <= headLimit, "the forehead stays below the underside");
+      assert.equal(pose.theta, initialTheta, "ceiling contact cannot eject sideways");
+      assert.equal(pose.y, platform.y, "ceiling contact cannot eject longitudinally");
+    }
+    assert.ok(highest > platform.height, "an ordinary jump leaves the shelf");
+    assert.equal(touchedCeiling, true, "the jump reaches the actual head clamp");
+    assert.equal(state().height, platform.height, "the player lands back on the shelf");
+    assert.equal(state().grounded, true);
+  });
+});
+
+test("underside contact roundoff is not a wall, but genuine vertical penetration is", () => {
+  const ceiling = { ...deck, base: 4.8, height: 0.4 };
+  const headLimit = ceiling.base - (EYE_HEIGHT + 0.15);
+  for (const offset of [-1e-10, 0, 1e-10, 1e-6]) {
+    scenario([ceiling], ({ player, state }) => {
+      player.teleport({ theta: 0, y: ceiling.y, height: headLimit + offset });
+      player.update(1 / 60);
+      if (offset === 1e-6) {
+        assert.ok(
+          state().theta * RADIUS > ceiling.width / 2,
+          "real head penetration still resolves against the slab's side",
+        );
+      } else {
+        assert.equal(state().theta, 0, `near-contact offset ${offset} is not a side wall`);
+        assert.equal(state().y, ceiling.y);
+      }
+    });
+  }
+});
+
 test("raised rails block walking on a deck without corrupting physical speed", () => {
   const rail = {
     theta: 4 / RADIUS,

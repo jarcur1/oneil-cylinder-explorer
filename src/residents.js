@@ -6,6 +6,7 @@ import {
 } from "./habitat.js";
 import { wrappedDeltaTheta, horizontalDistance } from "./cylinder-math.js";
 import { CARETAKER } from "./maintenance-layout.js";
+import { LIBRARY_LAYOUT } from "./library-layout.js";
 
 // =============================================================================
 // Ambient Residents of Greenway and Meridian Civic District
@@ -21,6 +22,7 @@ const FOOT_HEIGHT = 0.07; // Above hull/floor surface to align feet with stone p
 const STRIDE_LENGTH = 1.35; // Meters per full double-step cycle
 const SETTLE_DURATION = 0.8; // Seconds to smoothly settle into a viewpoint dwell
 const RESUME_DURATION = 0.8; // Seconds to smoothly resume walking from a dwell
+const READING_TRANSITION_DURATION = 1.6; // Slower supported sit/rise; other dwell timings are unchanged
 const SETTLE_DISTANCE_FACTOR = 0.5; // Average speed ratio during smoothstep deceleration
 
 // -----------------------------------------------------------------------------
@@ -593,6 +595,93 @@ const DISTRICT_PLACEMENTS = Object.freeze({
   meridian: MERIDIAN_PLACEMENT,
 });
 
+// Retrace the public doorway and side aisle; the chair is approached laterally,
+// never through its back or the table. Every point is local to Meridian.
+const libraryPath = buildPath([
+  { s: -17.5, y: -20.5 },
+  { s: -20, y: LIBRARY_LAYOUT.door.y },
+  { s: -24, y: LIBRARY_LAYOUT.door.y },
+  { s: -36.8, y: LIBRARY_LAYOUT.door.y },
+  { s: -36.8, y: LIBRARY_LAYOUT.reader.y, heading: -Math.PI / 2 },
+  { s: LIBRARY_LAYOUT.reader.s, y: LIBRARY_LAYOUT.reader.y, heading: LIBRARY_LAYOUT.reader.heading },
+  { s: -36.8, y: LIBRARY_LAYOUT.reader.y, heading: Math.PI / 2 },
+  { s: -36.8, y: LIBRARY_LAYOUT.door.y },
+  { s: -24, y: LIBRARY_LAYOUT.door.y },
+  { s: -20, y: LIBRARY_LAYOUT.door.y },
+], LIBRARY_LAYOUT.floor);
+const libraryReadingDistance = libraryPath.segments[5].cumDist;
+
+// Solve the authored legs once: pelvis underside meets the seat and the
+// shin/foot frame remains upright, so the entire shoe sole rests on the floor.
+const pelvisUnderside = 0.76 - geoPelvis.parameters.depth * 0.5;
+const readingDrop = LIBRARY_LAYOUT.floor + FOOT_HEIGHT + pelvisUnderside
+  - LIBRARY_LAYOUT.reader.seatTop;
+const readingFootZ = -FOOT_HEIGHT + geoFoot.parameters.depth * 0.5;
+const readingLegDown = 0.74 - readingDrop - readingFootZ;
+const readingThigh = Math.acos((readingLegDown - 0.365) / 0.34);
+const readingShin = -readingThigh;
+
+// Only this authored visit needs a seated transition. Consume the whole frame
+// across every boundary so rendering/frame partitioning cannot change the visit.
+function advanceLibraryReader(res, dt) {
+  let remaining = dt;
+  while (remaining > 0) {
+    const dwell = res.dwells[res.dwellIndex];
+    let consumed;
+    let step = 0;
+    if (res.dwellState === "walking") {
+      const start = dwell.distance - READING_TRANSITION_DURATION * res.speed * 0.5;
+      const toStart = (start - res.distance + res.path.perimeter) % res.path.perimeter;
+      const untilStart = toStart / res.speed;
+      consumed = Math.min(remaining, untilStart);
+      step = res.speed * consumed;
+      res.gaitWeight = 1;
+      if (remaining >= untilStart) {
+        res.dwellState = "settling";
+        res.dwellElapsed = 0;
+      }
+    } else if (res.dwellState === "dwelling") {
+      const untilResume = Math.max(0, dwell.duration - res.dwellElapsed);
+      consumed = Math.min(remaining, untilResume);
+      res.dwellElapsed += consumed;
+      res.gaitWeight = 0;
+      if (remaining >= untilResume) {
+        res.dwellState = "resuming";
+        res.dwellElapsed = 0;
+      }
+    } else {
+      const settling = res.dwellState === "settling";
+      const untilEnd = Math.max(0, READING_TRANSITION_DURATION - res.dwellElapsed);
+      consumed = Math.min(remaining, untilEnd);
+      const previousU = res.dwellElapsed / READING_TRANSITION_DURATION;
+      res.dwellElapsed += consumed;
+      const u = Math.min(1, res.dwellElapsed / READING_TRANSITION_DURATION);
+      const smooth = 3 * u * u - 2 * u * u * u;
+      res.gaitWeight = settling ? 1 - smooth : smooth;
+      // Exact integrals of the same smoothstep that drives the visible pose.
+      const integral = settling
+        ? u - u ** 3 + 0.5 * u ** 4
+          - previousU + previousU ** 3 - 0.5 * previousU ** 4
+        : u ** 3 - 0.5 * u ** 4 - previousU ** 3 + 0.5 * previousU ** 4;
+      step = res.speed * READING_TRANSITION_DURATION * integral;
+      if (remaining >= untilEnd) {
+        res.dwellElapsed = 0;
+        if (settling) {
+          res.dwellState = "dwelling";
+          res.gaitWeight = 0;
+        } else {
+          res.dwellState = "walking";
+          res.gaitWeight = 1;
+          res.dwellIndex = (res.dwellIndex + 1) % res.dwells.length;
+        }
+      }
+    }
+    res.distance += step;
+    res.gaitPhase = (res.gaitPhase + step / STRIDE_LENGTH * Math.PI * 2) % (Math.PI * 2);
+    remaining -= consumed;
+  }
+}
+
 const RESIDENT_ROUTES = Object.freeze({
   // Original Greenway Routes (Unchanged)
   promenade: {
@@ -654,15 +743,12 @@ const RESIDENT_ROUTES = Object.freeze({
   // City Walking Routes
   plaza: {
     district: "meridian",
-    name: "Meridian Plaza Loop",
-    height: 0,
-    bounds: { minS: -10.0, maxS: -6.0, minY: -17.0, maxY: 5.0 },
+    name: "Meridian Library Visit",
+    height: LIBRARY_LAYOUT.floor,
+    bounds: { minS: -38, maxS: -17.5, minY: -20.5, maxY: -15.4 },
     speed: 1.2,
-    dwells: [{ distance: 21.0, duration: 5.0 }],
-    path: buildPath(
-      createRoundedRectPoints(-10.0, -6.0, -17.0, 5.0, 1.2, 4, 0),
-      0,
-    ),
+    dwells: [{ distance: libraryReadingDistance, duration: 12.0 }],
+    path: libraryPath,
   },
   lobby: {
     district: "meridian",
@@ -930,7 +1016,7 @@ const RESIDENT_CONFIGS = [
     },
   },
 
-  // 7. Plaza Stroller (Meridian Civic Plaza)
+  // 7. Meridian Citizen (public library visit)
   {
     id: "resident-plaza",
     role: "Meridian Citizen",
@@ -1361,6 +1447,7 @@ function buildResident(cfg, residentsGroup) {
     isStatic: false,
     path: route.path,
     height,
+    reading: cfg.routeKey === "plaza",
     dwells: route.dwells || null,
     dwellIndex: 0,
     dwellState: "walking",
@@ -1468,7 +1555,9 @@ export function createResidents(parent) {
 
       if (safeDt > 0) {
         if (res.district === "meridian") res.poseElapsed += safeDt;
-        if (res.dwells && res.dwells.length > 0) {
+        if (res.reading) {
+          advanceLibraryReader(res, safeDt);
+        } else if (res.dwells && res.dwells.length > 0) {
           const dwell = res.dwells[res.dwellIndex];
           const S_dist = SETTLE_DURATION * res.speed * SETTLE_DISTANCE_FACTOR;
           const D_start =
@@ -1583,12 +1672,12 @@ export function createResidents(parent) {
       res.torso.rotation.z = swing * 0.04 * gw;
 
       if (res.district === "meridian") {
-        // Only the upper body participates: planted dwell feet and route anchors
-        // retain their original pose. The existing gait envelope eases both ways.
+        // Existing gait damping also blends the library reader's supported
+        // sitting pose. Other citizens retain their planted standing dwells.
         const rest = 1 - gw;
         const clock = res.poseElapsed;
         const viewing = res.binoculars !== null;
-        const scan = Math.sin(clock * 0.65) * (viewing ? 0.12 : 0.24);
+        const scan = Math.sin(clock * 0.65) * (res.reading ? 0.06 : viewing ? 0.12 : 0.24);
         const consult = 0.65 + 0.35 * Math.sin(clock * 0.9);
         res.head.rotation.z = rest * scan;
         res.head.rotation.x = rest * (viewing
@@ -1597,7 +1686,26 @@ export function createResidents(parent) {
         res.torso.rotation.z += rest * scan * 0.18;
         res.torso.rotation.x = rest * 0.018 * Math.sin(clock * 0.8);
 
-        if (viewing) {
+        if (res.reading) {
+          const thigh = readingThigh * rest;
+          const shin = readingShin * rest;
+          res.leftThigh.rotation.x += thigh;
+          res.rightThigh.rotation.x += thigh;
+          res.leftShin.rotation.x += shin;
+          res.rightShin.rotation.x += shin;
+          // Derive body descent from the articulated shoes, rather than
+          // pushing straight legs through the floor during sit/rise.
+          const footZ = 0.74 - 0.34 * Math.cos(thigh)
+            + 0.04 * Math.sin(thigh + shin) - 0.365 * Math.cos(thigh + shin);
+          res.body.position.z += 0.035 - FOOT_HEIGHT * rest - footZ;
+          res.torso.rotation.x = -0.08 * rest;
+          res.torso.rotation.z = swing * 0.04 * gw;
+          res.head.rotation.x = rest * (-0.66 + 0.015 * Math.sin(clock * 0.8));
+          res.leftArm.rotation.x += 0.16 * rest;
+          res.rightArm.rotation.x += 0.16 * rest;
+          res.leftForearm.rotation.x += rest * (1.32 + 0.025 * Math.sin(clock * 0.9));
+          res.rightForearm.rotation.x += rest * (1.32 - 0.025 * Math.sin(clock * 0.9));
+        } else if (viewing) {
           const grip = res.viewingGrip;
           grip.viewingPosition.copy(grip.eyeOffset)
             .applyQuaternion(res.head.quaternion).add(res.head.position);

@@ -1,11 +1,12 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { Quaternion, Scene } from "three";
+import { Quaternion, Scene, Vector3 } from "three";
 import { createResidents } from "../src/residents.js";
-import { RADIUS } from "../src/habitat.js";
+import { RADIUS, MERIDIAN_PLACEMENT } from "../src/habitat.js";
 import { CARETAKER } from "../src/maintenance-layout.js";
 import { inDistrict } from "../src/district-layout.js";
 import { inCity } from "../src/city-layout.js";
+import { LIBRARY_LAYOUT } from "../src/library-layout.js";
 
 test("resident limbs remain continuous across route lap boundaries with articulated gait", () => {
   const scene = new Scene();
@@ -128,7 +129,7 @@ test("viewpoint residents stand on their raised floors", () => {
     const root = scene.getObjectByName(id);
     return Math.hypot(root.position.x, root.position.z);
   };
-  const groundRadius = radiusOf("resident-plaza");
+  const groundRadius = radiusOf("resident-lobby");
   assert.ok(Math.abs(groundRadius - radiusOf("resident-skywalk") - 9) < 1e-6);
   assert.ok(Math.abs(groundRadius - radiusOf("resident-skyroom") - 42) < 1e-6);
 });
@@ -394,7 +395,7 @@ function assertBinocularFit(actor) {
   }
 }
 
-test("city dwell gestures animate existing belongings and eyes without moving planted feet", () => {
+test("city dwells animate reading, viewing, and belongings checks without moving planted feet", () => {
   const scene = new Scene();
   const controller = createResidents(scene);
   const city = controller.residents.filter((r) => r.dwells);
@@ -439,8 +440,12 @@ test("city dwell gestures animate existing belongings and eyes without moving pl
   for (const r of city) {
     const sample = samples.get(r);
     assert.ok(sample, `${r.cfg.id} must reach its existing dwell`);
-    assert.ok(sample.maxHead - sample.minHead > 0.1, `${r.cfg.id} looks across its surroundings`);
-    if (r.satchel || r.briefcase) {
+    assert.ok(sample.maxHead - sample.minHead > (r.reading ? 0.015 : 0.1),
+      `${r.cfg.id} looks across its reading or viewing target`);
+    if (r.reading) {
+      assert.ok(sample.maxElbow - sample.minElbow > 0.015, "reader relaxes arms while reading");
+      assert.equal(sample.maxProp - sample.minProp, 0, "satchel stays put while the citizen reads");
+    } else if (r.satchel || r.briefcase) {
       assert.ok(sample.maxElbow - sample.minElbow > 0.1, `${r.cfg.id} consults belongings`);
       assert.ok(sample.maxProp - sample.minProp > 0.02, `${r.cfg.id} existing belongings move`);
     } else if (r.binoculars) {
@@ -449,6 +454,100 @@ test("city dwell gestures animate existing belongings and eyes without moving pl
       assert.ok(sample.maxElbow - sample.minElbow > 0.015, "tourist relaxes its upper body");
     }
   }
+});
+
+test("library visitor uses the east doorway and side aisle, reads on its seat, and exits continuously", () => {
+  const controller = createResidents(new Scene());
+  const reader = controller.residents.find((r) => r.cfg.id === "resident-plaza");
+  const layout = LIBRARY_LAYOUT;
+  const point = new Vector3();
+  const target = new Vector3();
+  const direction = new Vector3();
+  const previousFeet = [new Vector3(), new Vector3()];
+  const feet = ["left", "right"].map((side) => reader.root.getObjectByName(`foot-${side}`));
+  const pelvis = reader.root.getObjectByName("pelvis");
+  const head = reader.head;
+  const previousPosition = reader.root.position.clone();
+  const previousRotation = reader.heading.quaternion.clone();
+  let previousS = reader.sampleState.s;
+  let entered = false;
+  let exited = false;
+  let dwellingFrames = 0;
+  let wraps = 0;
+  let previousDistance = reader.distance;
+  let firstDwell = Infinity;
+  let planted = false;
+  for (let frame = 0; frame < 120 * 60; frame++) {
+    controller.update(1 / 60, frame / 60);
+    const { s, y } = reader.sampleState;
+    const localY = MERIDIAN_PLACEMENT.toLocalY(y);
+    assert.ok(reader.root.position.distanceTo(previousPosition) < 0.05, "no positional jump");
+    assert.ok(reader.heading.quaternion.angleTo(previousRotation) < 0.1, "no angular jump");
+    previousPosition.copy(reader.root.position);
+    previousRotation.copy(reader.heading.quaternion);
+    if ((s <= layout.door.s && previousS > layout.door.s)
+      || (s >= layout.door.s && previousS < layout.door.s)) {
+      assert.ok(Math.abs(localY - layout.door.y) < 0.05, "both crossings use the central doorway");
+      if (s < previousS) entered = true;
+      else exited = true;
+    }
+    previousS = s;
+    if (reader.distance < previousDistance) wraps++;
+    previousDistance = reader.distance;
+    for (const table of layout.tables) {
+      assert.ok(Math.abs(s - table.s) > table.width / 2 + 0.2
+        || Math.abs(localY - table.y) >= table.depth / 2 + 0.25,
+      "route clears the table edge");
+    }
+    assert.ok(Math.hypot(s + 18, localY + 18) > 1.15, "route avoids the tree planter");
+    for (const pillarY of [-24, -16]) {
+      assert.ok(Math.hypot(s + 20.6, localY - pillarY) > 0.7, "route avoids portico pillars");
+    }
+    if (s < layout.reader.s + 0.6) {
+      assert.ok(s >= layout.reader.s - 1e-8 && Math.abs(localY - layout.reader.y) < 1e-8,
+        "final approach and departure use the chair's open east side");
+    }
+    if (reader.dwellState !== "dwelling") {
+      planted = false;
+      continue;
+    }
+    firstDwell = Math.min(firstDwell, frame / 60);
+    dwellingFrames++;
+    assert.ok(Math.abs(s - layout.reader.s) < 1e-8);
+    assert.ok(Math.abs(localY - layout.reader.y) < 1e-8);
+    assert.ok(Math.abs(reader.sampleState.heading - layout.reader.heading) < 1e-8);
+    reader.root.updateWorldMatrix(true, true);
+    // Actual articulated pelvis geometry, measured in the reader's tangent frame.
+    if (!pelvis.geometry.boundingBox) pelvis.geometry.computeBoundingBox();
+    reader.heading.worldToLocal(pelvis.localToWorld(point.set(0, 0, pelvis.geometry.boundingBox.min.z)));
+    assert.ok(Math.abs(layout.floor + 0.07 + point.z - layout.reader.seatTop) < 1e-6,
+      "pelvis underside is supported by the authored seat top");
+    assert.ok(Math.abs(point.x) < layout.reader.seatWidth / 2
+      && Math.abs(point.y) < layout.reader.seatDepth / 2);
+    for (let side = 0; side < feet.length; side++) {
+      const foot = feet[side];
+      const worldFoot = foot.getWorldPosition(point);
+      if (planted) assert.ok(worldFoot.distanceTo(previousFeet[side]) < 1e-9, "no reading foot skating");
+      previousFeet[side].copy(worldFoot);
+      reader.heading.worldToLocal(foot.localToWorld(point.set(0, 0, -0.035)));
+      assert.ok(Math.abs(layout.floor + 0.07 + point.z - layout.floor) < 1e-6,
+        "bent-leg shoe soles rest on the floor");
+    }
+    planted = true;
+    reader.heading.worldToLocal(head.getWorldPosition(point));
+    target.set(layout.book.s - layout.reader.s, layout.book.y - layout.reader.y,
+      layout.book.height - layout.floor - 0.07).sub(point).normalize();
+    direction.set(0, 1, 0).applyQuaternion(head.quaternion)
+      .applyQuaternion(reader.torso.quaternion);
+    assert.ok(direction.dot(target) > 0.98, "reader looks down toward the permanent table book");
+    const before = transformSnapshot(reader.root);
+    controller.update(0, 1e15);
+    assert.deepEqual(transformSnapshot(reader.root), before, "reading freezes exactly at dt zero");
+  }
+  assert.ok(entered && exited, "visitor enters and exits the library");
+  assert.ok(firstDwell < 30, "first reading visit remains observable in the city check");
+  assert.ok(dwellingFrames >= 12 * 60, "readable seated dwell lasts twelve seconds");
+  assert.ok(wraps > 0, "full reading and return loop completes within two minutes");
 });
 
 test("all city upper-body channels blend continuously through dwells and route wraps", () => {
@@ -541,3 +640,59 @@ test("paused residents freeze every transform regardless of external elapsed tim
   }
   assert.ok(sampledDwell && sampledResume, "freeze includes active dwell and resume poses");
 });
+
+for (const boundary of ["walking", "settling", "dwelling", "resuming"]) {
+  test(`library reader consumes equal simulation time across ${boundary} boundary partitions`, () => {
+    const whole = createResidents(new Scene());
+    const split = createResidents(new Scene());
+    const a = whole.residents.find((r) => r.cfg.id === "resident-plaza");
+    const b = split.residents.find((r) => r.cfg.id === "resident-plaza");
+    const nearBoundary = () => {
+      if (a.dwellState !== boundary) return false;
+      if (boundary === "walking") {
+        // The authored 1.6 s sit starts 0.96 m before the seat. Start this
+        // comparison just before deceleration, without setting actor state.
+        return a.distance >= a.dwells[0].distance - 1.08;
+      }
+      return a.dwellElapsed >= (boundary === "dwelling" ? a.dwells[0].duration - 0.1 : 1.5);
+    };
+    let prepared = false;
+    for (let frame = 0; frame < 2000; frame++) {
+      if (nearBoundary()) {
+        prepared = true;
+        break;
+      }
+      whole.update(0.05, 0);
+      split.update(0.05, 0);
+    }
+    assert.ok(prepared, `normal updates must reach the ${boundary} comparison window`);
+    const assertSameVisiblePose = (label) => {
+      const expected = transformSnapshot(a.root);
+      const actual = transformSnapshot(b.root);
+      assert.equal(actual.length, expected.length);
+      for (let i = 0; i < expected.length; i++) {
+        assert.ok(Math.abs(actual[i] - expected[i]) < 1e-9,
+          `${boundary} ${label}: visible transform ${i} differs by ${actual[i] - expected[i]}`);
+      }
+      a.root.updateWorldMatrix(true, true);
+      b.root.updateWorldMatrix(true, true);
+      for (const name of ["pelvis", "foot-left", "foot-right", "head"]) {
+        const expectedPosition = a.root.getObjectByName(name).getWorldPosition(new Vector3());
+        const actualPosition = b.root.getObjectByName(name).getWorldPosition(new Vector3());
+        assert.ok(actualPosition.distanceTo(expectedPosition) < 1e-9,
+          `${boundary} ${label}: actual ${name} placement depends on frame partition`);
+      }
+    };
+    whole.update(0.25, 1);
+    split.update(0.1, 2);
+    split.update(0.15, 3);
+    assertSameVisiblePose("after equal quarter-second");
+    // Lost remainder time can hide in a still pose; identical continuation
+    // must also produce the same rising pose, gait, and eventual route motion.
+    for (let frame = 0; frame < 120; frame++) {
+      whole.update(1 / 60, frame);
+      split.update(1 / 60, frame + 1000);
+      assertSameVisiblePose(`continuation frame ${frame}`);
+    }
+  });
+}
