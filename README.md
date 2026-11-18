@@ -53,7 +53,7 @@ The map separates the cylinder into **three elevation layers**:
 
 The unrolled projection wraps circumference `theta` across `[−π/2, 3π/2]` with north / Endcap B at the top so neither the `θ = 0` neighborhoods nor the `θ = π` axial spine touches the seam. It displays district bounds, your current player position, visited vs. unvisited landmark status, vertical lift and axial trolley links, and keyboard-accessible destination/job lists alongside the SVG map so small or overlapping pins stay usable on desktop and compact **375 × 600** screens without horizontal overflow.
 
-Select any destination (all 11 landmarks plus lift, rim, dock, and tram ground access points), track one of the three active jobs (**Delivery**, **Civic Maintenance**, or **Sunline Engineering**), or clear tracking at any time. Waypoints use **authored access guidance rather than a generic GPS pathfinder**:
+Select any destination (all 11 landmarks, the public library reading room, and lift, rim, dock, and tram ground access points), track one of the three active jobs (**Delivery**, **Civic Maintenance**, or **Sunline Engineering**), or clear tracking at any time. Waypoints use **authored access guidance rather than a generic GPS pathfinder**:
 
 - Targets on your current layer point directly to the destination; destination hints describe doorways, lanes, and stairs.
 - Cross-floor targets direct you to the appropriate transfer first: the **Service Access** lift for `−8 m`, the **Civic tower lobby** or **Skywalk** street lift for `+42 m` or `+9 m`, an **Endcap rim** lift to reach `+350 m`, a **trolley dock** when heading from an axial hub toward SL-02, or a hub **return lift** when descending from the axis.
@@ -96,11 +96,19 @@ Reloading an isolated or replaced job starts with emergency lighting already app
 
 ## Meridian Civic District
 
-Continue north along the promenade from Greenway to Meridian, or choose its entrance in the intro/pause menu. Seven authored surrounding buildings frame a plaza, side streets, planted avenues, and the taller civic tower. Other buildings are exterior-only; their marked entrances do not unlock or require collecting passes.
+Continue north along the promenade from Greenway to Meridian, or choose its entrance in the intro/pause menu. Seven authored surrounding buildings frame a plaza, side streets, planted avenues, and the taller civic tower. The library reading room and civic tower are public; the remaining buildings are exterior-only, with no collectible entrance passes.
 
-Meridian's existing buildings have distinct, static facade treatments: recessed glazing, blinds and curtains, book-lined library windows, and occasional warm room colors. Flush library exhibition, exchange notice, and residential entrance displays add street-level identity without opening new interiors or changing building footprints. These are ordinary lit materials, not a new day/night cycle or extra lights.
+Meridian's existing buildings have distinct, static facade treatments: recessed glazing, blinds and curtains, book-lined library windows, and occasional warm room colors. Library exhibitions, exchange notices, and residential entrance displays add street-level identity. Facades use ordinary lit materials; the reading room adds two warm, non-shadow-casting lights, not a day/night cycle.
 
-The plaza armillary's rings turn slowly on simulation time. Existing city visitors look around and check their belongings during stops; the Skywalk observer raises binoculars while viewing the habitat. Their feet and routes stay fixed during a dwell, Mara's interaction anchor is unchanged, and pausing or opening the map freezes the motion.
+The plaza armillary's rings turn slowly on simulation time. Existing city visitors look around and check their belongings during stops; one visitor enters the library and sits to read, and the Skywalk observer raises binoculars while viewing the habitat. Mara's interaction anchor is unchanged. Pausing or opening the map freezes resident motion.
+
+### Public library reading room
+
+Track **Library reading room** on the map, then enter through the central doorway in the library's east portico, west of the promenade. Walk straight in without pressing **E**. Shelves, reading tables and chairs furnish the ground floor; wall exhibits explain spin gravity, the sunline, and habitat life-support systems. The floor, walls, ceiling, and major furniture are solid. Upper archives remain closed.
+
+An existing city visitor walks in, settles into a reading seat, and leaves on the same simulation-time schedule. Player seating is not implemented. The library adds no resident, quest, discovery, or save field; its public map target is an unsaved waypoint destination.
+
+### Civic tower and Skywalk
 
 From **Meridian plaza**, take the east street, then turn north through the tower's open south doorway. Approach the illuminated lift pad and press **E** to reach the **Skyroom**, 42 m above the living surface. Walk around its glazed observation lounge; return to the pad and press **E** for the ground lobby.
 
@@ -187,6 +195,7 @@ The production files are in `dist/`. Serve that folder with an ordinary static w
 - `src/village.js`: neighborhood buildings, market square, orchard, steps, overlook, and furniture.
 - `src/farm.js`: greenhouse interior and instanced structural frame, crop rows, irrigation crossings, utility yard, animated rotor and pump.
 - `src/city-streets.js`: seven civic blocks, streets/plaza, instanced avenue furniture and trees, and wayfinding.
+- `src/library.js` and `src/library-layout.js`: public reading-room geometry and furniture, exhibits, local lighting, matching collision solids, and shared doorway/table/reader coordinates.
 - `src/city-tower.js`: accessible lobby/Skyroom, landmark silhouette, elevated viewing terraces, and lift structures.
 - `src/city-layout.js` and `src/city-transit.js`: fixed city bounds/landmarks (including explicit floor `height`), and canonical exported `CITY_LIFT_STOPS` height/range-gated lift destinations.
 - `src/service-layout.js` and `src/service-level.js`: signed-depth bounds, stable discoveries with explicit `SERVICE_FLOOR` `height`, service pavilion, enclosed utility rooms, machinery, physical obstacles, and isolated underground lighting.
@@ -196,7 +205,7 @@ The production files are in `dist/`. Serve that folder with an ordinary static w
 - `src/atmosphere.js`: static sunlight/shadow cache configuration, local lights, fog, and procedural contact shading.
 - `src/district-lighting.js`: world-space regional daylight attenuation, per-world material/uniform ownership, and pause-safe power transitions; existing point lamps and emissive surfaces stay lit.
 - `src/soundscape.js`: lazy audio graph, location-aware ambience, footsteps/landing suppression while riding, and serialized pause/mute lifecycle.
-- `src/residents.js`: nine walking routes, shared character models, altitude-aware gait, blended city dwell gestures, stationary caretaker Mara, and Nia’s phase-aware conversation with a live moving anchor.
+- `src/residents.js`: nine walking routes, shared character models, altitude-aware gait, blended city dwell gestures, the library reader, stationary caretaker Mara, and Nia’s phase-aware conversation with a live moving anchor.
 - `src/delivery.js` and `src/delivery-layout.js`: delivery state, station coordinates, grounded walk-mode prompts, and pickup/carried/received crate props.
 - `src/maintenance-state.js`, `src/maintenance.js`, and `src/maintenance-layout.js`: caretaker conversations, maintenance progression/guards, unit location, fan and indicator visuals.
 - `src/tram-layout.js`, `src/tram-state.js`, and `src/tram.js`: pure 5-stop `θ = 0` route/dimensions, deterministic shuttle timetable/transfer guards, instanced guideway/stations, and carriage pose provider.
@@ -216,6 +225,7 @@ The production files are in `dist/`. Serve that folder with an ordinary static w
 - `tests/tram.test.js`: civilian tram route dimensions, timetable/dwell/reversal determinism, and transfer eligibility guards.
 - `checks/browser.spec.js`, `checks/navigation.spec.js`, `checks/tram.spec.js`, `checks/world.html`, and `playwright.config.js`: retained real-browser lifecycle, audio, authored-world, map/waypoint, civilian tram, compact layout, and WebGL regressions.
 - `checks/city-life.spec.js`: rendered city dwell poses, physical anchors, simulation-time armillary motion, pause invariance, and dynamic shadow-cache exclusions.
+- `checks/library.spec.js`: real doorway/furniture/ceiling collision, exhibit and local-light rendering, seated reader support, and native map/entry/exit/pause behavior.
 
 Coordinates use the Y axis along the cylinder. At angle `theta` and inward height `h` relative to the living surface (negative below it):
 

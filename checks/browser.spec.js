@@ -14,6 +14,7 @@ import {
   SUNLINE_TRACK_MIN_Y,
   SUNLINE_TRACK_MAX_Y,
 } from "../src/sunline-layout.js";
+import { LIBRARY_LAYOUT } from "../src/library-layout.js";
 const waitFrames = (page, count = 2) =>
   page.evaluate(
     (n) =>
@@ -1169,6 +1170,8 @@ test("regional lighting ownership, locality, pause invariance, and four-line sig
       const f = window.__worldFixture;
       const {
         world,
+        scene,
+        renderer,
         camera,
         layouts,
         sampleLuminanceAt,
@@ -1195,12 +1198,32 @@ test("regional lighting ownership, locality, pause invariance, and four-line sig
         );
       const lights = getLightInventory();
       const shadowCasters = lights.filter((l) => l.castShadow);
-      const surfacePointLights = lights.filter(
-        (l) => l.isPointLight && l.layer0 && !l.layer1,
-      );
+      const pointLightLayersIsolated = lights
+        .filter((light) => light.isPointLight)
+        .every((light) => light.layer0 !== light.layer1);
       const isolatedServiceLights = lights.filter(
         (l) => l.isPointLight && !l.layer0 && l.layer1,
       );
+      const libraryLights = [];
+      scene.updateMatrixWorld(true);
+      scene.getObjectByName("libraryReadingRoom")?.traverse((light) => {
+        if (!light.isLight) return;
+        const position = light.getWorldPosition(camera.position.clone());
+        libraryLights.push({
+          name: light.name,
+          isPointLight: Boolean(light.isPointLight),
+          layerMask: light.layers.mask,
+          castShadow: light.castShadow,
+          red: light.color.r,
+          green: light.color.g,
+          blue: light.color.b,
+          intensity: light.intensity,
+          distance: light.distance,
+          s: Math.atan2(position.x, -position.z) * layouts.RADIUS,
+          y: layouts.MERIDIAN_PLACEMENT.toLocalY(position.y),
+          height: layouts.RADIUS - Math.hypot(position.x, position.z),
+        });
+      });
 
       const initialStatus = world.sunline.getDistrictStatus();
       const greenwayDay = sampleGreenway();
@@ -1270,7 +1293,9 @@ test("regional lighting ownership, locality, pause invariance, and four-line sig
         viewDistance: layouts.VIEW_DISTANCE,
         shadowCasterCount: shadowCasters.length,
         shadowCasterName: shadowCasters[0]?.name,
-        surfacePointCount: surfacePointLights.length,
+        shadowAutoUpdate: renderer.shadowMap.autoUpdate,
+        pointLightLayersIsolated,
+        libraryLights,
         servicePointCount: isolatedServiceLights.length,
         initialOnline: initialStatus.online,
         isolatedChanged: Boolean(isolateRes?.changed),
@@ -1294,7 +1319,28 @@ test("regional lighting ownership, locality, pause invariance, and four-line sig
     expect(result.cameraFar).toBeCloseTo(VIEW_DISTANCE, 5);
     expect(result.shadowCasterCount).toBe(1);
     expect(result.shadowCasterName).toBe("habitat_sunlight");
-    expect(result.surfacePointCount).toBe(6);
+    expect(result.shadowAutoUpdate).toBe(false);
+    expect(result.pointLightLayersIsolated).toBe(true);
+    expect(result.libraryLights.map((light) => light.name).sort()).toEqual([
+      "libraryWarmLightNorth",
+      "libraryWarmLightSouth",
+    ]);
+    for (const light of result.libraryLights) {
+      expect(light.isPointLight).toBe(true);
+      expect(light.layerMask).toBe(1);
+      expect(light.castShadow).toBe(false);
+      expect(light.red).toBeGreaterThan(light.green);
+      expect(light.green).toBeGreaterThan(light.blue);
+      expect(light.intensity).toBeGreaterThan(0);
+      expect(light.distance).toBeGreaterThan(0);
+      expect(light.distance).toBeLessThanOrEqual(20);
+      expect(light.s).toBeGreaterThan(LIBRARY_LAYOUT.bounds.minS);
+      expect(light.s).toBeLessThan(LIBRARY_LAYOUT.bounds.maxS);
+      expect(light.y).toBeGreaterThan(LIBRARY_LAYOUT.bounds.minY);
+      expect(light.y).toBeLessThan(LIBRARY_LAYOUT.bounds.maxY);
+      expect(light.height).toBeGreaterThan(LIBRARY_LAYOUT.floor);
+      expect(light.height).toBeLessThan(LIBRARY_LAYOUT.ceiling);
+    }
     expect(result.servicePointCount).toBe(4);
 
     // State & emergency transition

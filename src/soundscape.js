@@ -5,6 +5,7 @@ import {
 } from "./habitat.js";
 import { wrappedDeltaTheta } from "./cylinder-math.js";
 import { inServiceLevel } from "./service-layout.js";
+import { LIBRARY_LAYOUT } from "./library-layout.js";
 
 const CANAL_THETA = 109.5 / RADIUS;
 const PUMP_THETA = 43.5 / RADIUS;
@@ -550,6 +551,14 @@ export function createSoundscape({ muted = false } = {}) {
     );
     const greenwayY = GREENWAY_PLACEMENT.toLocalY(playerY);
     const meridianY = MERIDIAN_PLACEMENT.toLocalY(playerY);
+    const meridianS = Math.atan2(Math.sin(playerTheta), Math.cos(playerTheta)) * RADIUS;
+    const inLibrary =
+      meridianS >= LIBRARY_LAYOUT.bounds.minS &&
+      meridianS <= LIBRARY_LAYOUT.bounds.maxS &&
+      meridianY >= LIBRARY_LAYOUT.bounds.minY &&
+      meridianY <= LIBRARY_LAYOUT.bounds.maxY &&
+      playerHeight >= LIBRARY_LAYOUT.floor - 0.1 &&
+      playerHeight < LIBRARY_LAYOUT.ceiling;
     const servicePumpDistance = inService
       ? Math.hypot(
           wrappedDeltaTheta(playerTheta, -27 / RADIUS) * (RADIUS - playerHeight),
@@ -604,6 +613,7 @@ export function createSoundscape({ muted = false } = {}) {
 
     const damped =
       isInsideGreenhouse ||
+      inLibrary ||
       inService ||
       inAxial ||
       traversalMode === "tram";

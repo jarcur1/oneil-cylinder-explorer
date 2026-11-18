@@ -19,6 +19,9 @@ const SPRINT_SPEED = 18.0;
 const JUMP_VELOCITY = 6.0;
 const PLAYER_RADIUS = 0.45;
 const STEP_HEIGHT = 0.25;
+const BODY_HEIGHT = EYE_HEIGHT + 0.15;
+// A clamped head can reconstruct just above an underside through roundoff.
+const HEIGHT_CONTACT_EPSILON = 1e-9;
 
 const MOUSE_SENSITIVITY = 0.0022;
 const DRAG_SENSITIVITY = 0.003;
@@ -424,6 +427,13 @@ export function createPlayer(camera, domElement, options = {}) {
     camera.lookAt(_target);
   }
 
+  function isBesideObstacle(box) {
+    return (
+      h < box.maxH - STEP_HEIGHT &&
+      h + BODY_HEIGHT - box.minH > HEIGHT_CONTACT_EPSILON
+    );
+  }
+
   function resolveObstacleCollisions(obsList, previousTheta, previousY) {
     if (!obsList || obsList.length === 0) return;
     const radius = Math.max(1, RADIUS - h);
@@ -437,12 +447,9 @@ export function createPlayer(camera, domElement, options = {}) {
           y: oY,
           hw: arcHalfWidth,
           hl,
-          minH,
-          maxH,
         } = obsList[i];
 
-        const isBeside = h < maxH - STEP_HEIGHT && h + EYE_HEIGHT + 0.15 > minH;
-        if (!isBeside) continue;
+        if (!isBesideObstacle(obsList[i])) continue;
 
         const hw = (arcHalfWidth * radius) / RADIUS;
         const ds = wrappedDeltaTheta(theta, oTheta) * radius;
@@ -491,8 +498,7 @@ export function createPlayer(camera, domElement, options = {}) {
     if (corrected) {
       for (const box of obsList) {
         if (
-          h < box.maxH - STEP_HEIGHT &&
-          h + EYE_HEIGHT + 0.15 > box.minH &&
+          isBesideObstacle(box) &&
           overlapsFootprint(box, 1e-8)
         ) {
           theta = previousTheta;
@@ -528,15 +534,14 @@ export function createPlayer(camera, domElement, options = {}) {
   }
 
   function resolveCeiling(previousHeight) {
-    const bodyHeight = EYE_HEIGHT + 0.15;
     if (velH <= 0) return;
     for (const box of collisionBoxes) {
       if (
-        previousHeight + bodyHeight <= box.minH &&
-        h + bodyHeight >= box.minH &&
+        previousHeight + BODY_HEIGHT - box.minH <= HEIGHT_CONTACT_EPSILON &&
+        h + BODY_HEIGHT >= box.minH &&
         overlapsFootprint(box)
       ) {
-        h = box.minH - bodyHeight;
+        h = box.minH - BODY_HEIGHT;
         velH = 0;
       }
     }

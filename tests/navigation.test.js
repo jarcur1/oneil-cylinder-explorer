@@ -23,6 +23,7 @@ import { CITY_LIFT_STOPS, getCityLift } from "../src/city-transit.js";
 import { SUNLINE_TRANSFERS, getSunlineTransfer } from "../src/sunline-transit.js";
 import { TRAM_THETA, TRAM_HEIGHT, TRAM_STOPS } from "../src/tram-layout.js";
 import { DELIVERY_STATIONS, SUPPLY_STATIONS } from "../src/delivery-layout.js";
+import { LIBRARY_LAYOUT, LIBRARY_TARGET } from "../src/library-layout.js";
 import { createDelivery } from "../src/delivery.js";
 import { createMaintenanceState } from "../src/maintenance-state.js";
 import { createSunlineState } from "../src/sunline-state.js";
@@ -398,6 +399,56 @@ test("floor-aware arrival rejects same theta/y on another floor and keeps zero-d
   assert.equal(underModule.arrived, false);
   assert.equal(underModule.guidance.height, 0);
   assert.equal(underModule.guidance.y, ENDCAP_HUBS[0].rim.y);
+});
+
+test("public library guidance leads through the east entrance and rejects the closed upper floors", () => {
+  const nav = createNavigation();
+  const target = NAV_TARGETS.find((entry) => entry.id === LIBRARY_TARGET.id);
+  assert.equal(target.kind, "public");
+  assert.equal(target.landmarkId, undefined);
+  assert.match(target.hint, /east portico.*central doorway/i);
+  assert.match(target.hint, /ground-floor.*public.*upper archives.*closed/i);
+  nav.select({ kind: "destination", id: target.id });
+
+  const approach = nav.getWaypoint({
+    theta: (LIBRARY_LAYOUT.door.s + 5) / RADIUS,
+    y: target.y,
+    height: 0,
+    traversalMode: "walk",
+  }, {});
+  assert.equal(approach.arrived, false);
+  assert.equal(approach.guidance.kind, "public");
+  assert.equal(approach.guidance.theta, target.theta);
+  assert.equal(approach.guidance.y, target.y);
+  assert.equal(approach.guidance.height, LIBRARY_LAYOUT.floor);
+  assert.ok(approach.distance > 8);
+
+  const doorway = nav.getWaypoint({
+    theta: (LIBRARY_LAYOUT.door.s - 2.5) / RADIUS,
+    y: target.y,
+    height: LIBRARY_LAYOUT.floor,
+  }, {});
+  assert.equal(doorway.arrived, true);
+  assert.ok(doorway.finalDistance < 2);
+  const tooFar = nav.getWaypoint({
+    theta: target.theta,
+    y: target.y + 2.1,
+    height: target.height,
+  }, {});
+  assert.equal(tooFar.arrived, false, "uses the public entrance's 2 m range, not lift defaults");
+  for (const height of [LIBRARY_LAYOUT.upperBase, 9, TOWER.observationHeight, SERVICE_FLOOR]) {
+    const wrongFloor = nav.getWaypoint({ theta: target.theta, y: target.y, height }, {});
+    assert.equal(wrongFloor.arrived, false, `same map position at height ${height} is not arrival`);
+    assert.ok(Number.isFinite(wrongFloor.distance));
+  }
+  const fromSkywalk = nav.getWaypoint({
+    theta: SKYWALK_LIFT.theta, y: SKYWALK_LIFT.y, height: SKYWALK_HEIGHT,
+  }, {});
+  assert.equal(fromSkywalk.guidance.kind, "lift");
+  assert.equal(fromSkywalk.guidance.height, SKYWALK_HEIGHT);
+  assert.equal(fromSkywalk.target.name, "Library reading room");
+  assert.equal(nav.select({ kind: "job", id: target.id }), null, "a public room is not a fourth job");
+  assert.deepEqual(nav.getSelection(), { kind: "destination", id: target.id });
 });
 
 test("cross-floor guidance exits current 9m/42m/service/axial level before entering target level", () => {

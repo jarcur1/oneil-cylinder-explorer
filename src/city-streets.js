@@ -1,6 +1,8 @@
 import * as THREE from "three";
 import { RADIUS } from "./habitat.js";
-import { addCivicBlock, createFacadeMaterial } from "./civic-primitives.js";
+import { addCivicBlock, addCivicSolid, createFacadeMaterial } from "./civic-primitives.js";
+import { createLibrary } from "./library.js";
+import { LIBRARY_LAYOUT } from "./library-layout.js";
 import {
   setSurfaceMatrix,
   addSurfaceBox,
@@ -23,38 +25,17 @@ function createStreetDisplayMaterial(style) {
   ctx.strokeStyle = "#a99a76";
   ctx.lineWidth = 2;
   ctx.strokeRect(18, 18, 476, 476);
-  const library = style === "library";
   const exchange = style === "exchange";
   ctx.textAlign = "center";
   ctx.fillStyle = "#e4d7b8";
   ctx.font = "600 30px system-ui";
-  ctx.fillText(library ? "CIVIC LIBRARY" : exchange ? "LOCAL EXCHANGE" : "COMMONS RESIDENCES", 256, 68, 450);
+  ctx.fillText(exchange ? "LOCAL EXCHANGE" : "COMMONS RESIDENCES", 256, 68, 450);
   ctx.font = "18px system-ui";
   ctx.fillStyle = "#9cb7b1";
-  ctx.fillText(library ? "WINDOW EXHIBITION" : exchange ? "DISTRICT NOTICE WINDOW" : "RESIDENTIAL ENTRANCE", 256, 105, 450);
+  ctx.fillText(exchange ? "DISTRICT NOTICE WINDOW" : "RESIDENTIAL ENTRANCE", 256, 105, 450);
   ctx.fillStyle = "#31484a";
   ctx.fillRect(32, 132, 448, 280);
-  if (library) {
-    // Book jackets and an orbital plate, displayed behind the exterior glass.
-    const jackets = ["#b2a27b", "#6a9391", "#ba8467"];
-    for (let i = 0; i < 3; i++) {
-      const x = 48 + i * 144;
-      ctx.fillStyle = jackets[i];
-      ctx.fillRect(x, 164 + i * 6, 128, 204 - i * 6);
-      ctx.fillStyle = "rgba(20,40,42,.3)";
-      ctx.fillRect(x + 8, 164 + i * 6, 5, 204 - i * 6);
-      ctx.strokeStyle = "#e1d3ac";
-      ctx.lineWidth = 2;
-      ctx.beginPath();
-      ctx.ellipse(x + 67, 252, 40, 56 - i * 10, i * 0.7, 0, Math.PI * 2);
-      ctx.stroke();
-      ctx.fillStyle = "#203d40";
-      ctx.font = "600 15px system-ui";
-      ctx.fillText(["HABITAT", "COLLECTION", "ORBITAL ATLAS"][i], x + 64, 338, 116);
-    }
-    ctx.fillStyle = "#b5a184";
-    ctx.fillRect(42, 377, 428, 7);
-  } else if (exchange) {
+  if (exchange) {
     for (let i = 0; i < 2; i++) {
       const x = 52 + i * 212;
       ctx.fillStyle = i ? "#b2bba7" : "#d1bd95";
@@ -98,7 +79,7 @@ function createStreetDisplayMaterial(style) {
   ctx.fill();
   ctx.fillStyle = "#e4d7b8";
   ctx.font = "16px system-ui";
-  ctx.fillText(library ? "EXTERIOR DISPLAY · ARCHIVE PASS REQUIRED" : exchange ? "EXTERIOR DISPLAY · BADGE ACCESS ONLY" : "PRIVATE ACCESS · NO PUBLIC ENTRY", 256, 459, 448);
+  ctx.fillText(exchange ? "EXTERIOR DISPLAY · BADGE ACCESS ONLY" : "PRIVATE ACCESS · NO PUBLIC ENTRY", 256, 459, 448);
   const texture = new THREE.CanvasTexture(canvas);
   texture.colorSpace = THREE.SRGBColorSpace;
   texture.anisotropy = 4;
@@ -414,7 +395,7 @@ export function createCityStreets(parent) {
 
   // ==========================================
   // 3. MID-RISE CIVIC ARCHITECTURE (7 Fixed Footprints)
-  // Multi-tier curved solids, setbacks, canopies, non-enterable markers
+  // Multi-tier curved solids and setbacks; the library has a public ground floor.
   // ==========================================
 
   // ------------------------------------------
@@ -423,18 +404,16 @@ export function createCityStreets(parent) {
   const libGroup = new THREE.Group();
   libGroup.name = "bldgLibrary";
   buildingsGroup.add(libGroup);
-  // Foundation plinth
-  addCivicBlock(libGroup, mats.concretePlinth, -35, -20, 24.6, 30.6, 0.6, 0);
-  // Main volume
-  addCivicBlock(libGroup, mats.libraryFacade, -35, -20, 24, 30, 22.0, 0.6);
-  // Cornice band
-  addCivicBlock(libGroup, mats.limestone, -35, -20, 24.5, 30.5, 0.8, 22.6);
-  // Stepped setback tier (reaches 30 m)
-  addCivicBlock(libGroup, mats.libraryFacade, -35, -20, 18, 24, 6.6, 23.4);
-  // Rooftop reading room clerestory lantern
-  addCivicBlock(libGroup, mats.limestone, -35, -20, 10, 14, 0.8, 30.0);
-  addCivicBlock(libGroup, mats.canopyGlass, -35, -20, 9.2, 13.2, 1.6, 30.8);
-  addCivicBlock(libGroup, mats.tealMetal, -35, -20, 9.6, 13.6, 0.4, 32.4);
+  const library = createLibrary(libGroup);
+  obstacles.push(...library.obstacles);
+  // Upper archives stay solid and inaccessible, preserving the existing silhouette.
+  addCivicSolid(libGroup, mats.libraryFacade, obstacles, -35, -20, 24, 30,
+    22.6 - LIBRARY_LAYOUT.upperBase, LIBRARY_LAYOUT.upperBase).name = "libraryClosedUpperVolume";
+  addCivicSolid(libGroup, mats.limestone, obstacles, -35, -20, 24.5, 30.5, 0.8, 22.6).name = "libraryCornice";
+  addCivicSolid(libGroup, mats.libraryFacade, obstacles, -35, -20, 18, 24, 6.6, 23.4).name = "libraryUpperSetback";
+  addCivicSolid(libGroup, mats.limestone, obstacles, -35, -20, 10, 14, 0.8, 30).name = "libraryLanternBase";
+  addCivicSolid(libGroup, mats.canopyGlass, obstacles, -35, -20, 9.2, 13.2, 1.6, 30.8).name = "libraryLantern";
+  addCivicSolid(libGroup, mats.tealMetal, obstacles, -35, -20, 9.6, 13.6, 0.4, 32.4).name = "libraryLanternCap";
   // Plaza portico canopy on east facade (s = -23)
   addCivicBlock(libGroup, mats.tealMetal, -21.8, -20, 2.6, 12.0, 0.4, 4.2);
   obstacles.push({
@@ -448,37 +427,19 @@ export function createCityStreets(parent) {
   addCivicBlock(libGroup, mats.canopyGlass, -21.8, -20, 2.2, 11.2, 0.15, 4.6);
   addSurfaceBox(libGroup, mats.bronzeMetal, -20.6, -24, 0.5, 0.5, 4.2, 0);
   addSurfaceBox(libGroup, mats.bronzeMetal, -20.6, -16, 0.5, 0.5, 4.2, 0);
-  addSurfaceBox(libGroup, mats.bronzeMetal, -22.9, -20, 0.3, 7.0, 3.8, 0);
-  addSurfaceSign(
-    libGroup,
-    "MERIDIAN CIVIC LIBRARY\nCENTRAL ARCHIVES · PASS REQUIRED",
-    -21.5,
-    -20,
-    4.8,
-    4.8,
-  );
-  // Obstacles
-  obstacles.push({
-    theta: -35 / RADIUS,
-    y: -20,
-    width: 24,
-    depth: 30,
-    height: 30,
-    base: 0,
-  });
   obstacles.push({
     theta: -20.6 / RADIUS,
     y: -24,
-    width: 0.6,
-    depth: 0.6,
+    width: 0.5,
+    depth: 0.5,
     height: 4.2,
     base: 0,
   });
   obstacles.push({
     theta: -20.6 / RADIUS,
     y: -16,
-    width: 0.6,
-    depth: 0.6,
+    width: 0.5,
+    depth: 0.5,
     height: 4.2,
     base: 0,
   });
@@ -804,14 +765,10 @@ export function createCityStreets(parent) {
     base: 0,
   });
 
-  // Street-facing display glass stays flush with existing solid side walls.
-  // All Y values remain local to Meridian; no access/collision geometry changes.
-  const libraryDisplay = createStreetDisplayMaterial("library");
+  // Unrelated exchange and residential frontages remain closed architectural displays.
   const exchangeDisplay = createStreetDisplayMaterial("exchange");
   const residentialDisplay = createStreetDisplayMaterial("residential");
   const displays = [
-    [libGroup, libraryDisplay, "cityLibraryExhibitionSouth", -23, -28, 2.4, "east", 5.4, 2.8],
-    [libGroup, libraryDisplay, "cityLibraryExhibitionNorth", -23, -12, 2.4, "east", 5.4, 2.8],
     [commGroup, exchangeDisplay, "cityExchangeDisplaySouth", 83, -14, 2.2, "west", 4.8, 2.4],
     [commGroup, exchangeDisplay, "cityExchangeDisplayNorth", 83, 0, 2.2, "west", 4.8, 2.4],
     [hNorthGroup, residentialDisplay, "cityResidentialEntranceNorth", -31, 65, 2.05, "east", 4.8, 2.2],
@@ -829,18 +786,6 @@ export function createCityStreets(parent) {
     );
     panel.name = name;
   }
-  // The existing bronze entrance fascia projects beyond the main wall.
-  // Put the central exhibit on that face, not hidden behind it under the canopy.
-  const libraryEntryDisplay = addOrientedPanel(
-    libGroup,
-    libraryDisplay,
-    surfacePos(-22.9 / RADIUS, -20, 2.05),
-    "east",
-    5.8,
-    2.5,
-  );
-  libraryEntryDisplay.name = "cityLibraryExhibitionEntry";
-  libraryEntryDisplay.translateZ(0.15);
 
   // ==========================================
   // 4. PLAZA CENTERPIECE & CIVIC WAYFINDING
