@@ -451,9 +451,10 @@ export function createPlayer(camera, domElement, options = {}) {
 
         if (!isBesideObstacle(obsList[i])) continue;
 
+        const dy = y - oY;
+        if (Math.abs(dy) > hl + PLAYER_RADIUS) continue;
         const hw = (arcHalfWidth * radius) / RADIUS;
         const ds = wrappedDeltaTheta(theta, oTheta) * radius;
-        const dy = y - oY;
 
         const cx = Math.max(-hw, Math.min(hw, ds));
         const cy = Math.max(-hl, Math.min(hl, dy));
@@ -510,10 +511,11 @@ export function createPlayer(camera, domElement, options = {}) {
   }
 
   function overlapsFootprint(box, tolerance = 0) {
+    const dy = y - box.y;
+    if (Math.abs(dy) > box.hl + PLAYER_RADIUS) return false;
     const radius = Math.max(1, RADIUS - h);
     const hw = (box.hw * radius) / RADIUS;
     const ds = wrappedDeltaTheta(theta, box.theta) * radius;
-    const dy = y - box.y;
     const vx = ds - Math.max(-hw, Math.min(hw, ds));
     const vy = dy - Math.max(-box.hl, Math.min(box.hl, dy));
     return vx * vx + vy * vy < PLAYER_RADIUS * PLAYER_RADIUS - tolerance;

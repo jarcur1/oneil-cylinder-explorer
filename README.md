@@ -53,7 +53,7 @@ The map separates the cylinder into **three elevation layers**:
 
 The unrolled projection wraps circumference `theta` across `[−π/2, 3π/2]` with north / Endcap B at the top so neither the `θ = 0` neighborhoods nor the `θ = π` axial spine touches the seam. It displays district bounds, your current player position, visited vs. unvisited landmark status, vertical lift and axial trolley links, and keyboard-accessible destination/job lists alongside the SVG map so small or overlapping pins stay usable on desktop and compact **375 × 600** screens without horizontal overflow.
 
-Select any destination (all 11 landmarks, the public library reading room, and lift, rim, dock, and tram ground access points), track one of the three active jobs (**Delivery**, **Civic Maintenance**, or **Sunline Engineering**), or clear tracking at any time. Waypoints use **authored access guidance rather than a generic GPS pathfinder**:
+Select any destination (all 11 landmarks, the public library reading room, Stillwater's public destinations, and lift, rim, dock, and tram ground access points), track one of the three active jobs (**Delivery**, **Civic Maintenance**, or **Sunline Engineering**), or clear tracking at any time. Waypoints use **authored access guidance rather than a generic GPS pathfinder**:
 
 - Targets on your current layer point directly to the destination; destination hints describe doorways, lanes, and stairs.
 - Cross-floor targets direct you to the appropriate transfer first: the **Service Access** lift for `−8 m`, the **Civic tower lobby** or **Skywalk** street lift for `+42 m` or `+9 m`, an **Endcap rim** lift to reach `+350 m`, a **trolley dock** when heading from an axial hub toward SL-02, or a hub **return lift** when descending from the axis.
@@ -115,6 +115,16 @@ From **Meridian plaza**, take the east street, then turn north through the tower
 The separate street lift is on the north cross-street, east of the promenade. **E** takes you to the **9 m Skywalk**, a railed viewing terrace with two connected deck segments. Return to its pad and press **E** to descend. Ground pedestrians can pass underneath.
 
 Lifts deliberately use instantaneous travel behind a short fade, not moving cabins. They require a grounded player within 2.8 m of the correct landing and cannot activate from the air, another floor, or while paused. Discovery and carried cargo survive travel. Raised slabs have underside/ceiling collision; falling onto a deck cannot skip through it, and the player's physical collision radius stays constant upstairs. Curved tower and bridge geometry matches their arc-coordinate footprints.
+
+## Stillwater Reserve
+
+Choose **Visit Stillwater Reserve (temporary jump)** from the intro or pause menu to reach the opposite interior wall, across the open cylinder from Meridian. The district has a curved shoreline, raised banks, shallow steps, woodland paths, a public water-management pavilion, and a stepped lookout. Look up across the habitat from the lookout to find the existing neighborhoods.
+
+The woodland mixes broad, irregular oak crowns, pale multi-stem birches, and tiered pines. Seeded groves mix mature trees and saplings with different heights, widths, and foliage colors; shrub thickets, ferns, and patchy leaf litter form the lower layers. Trunks are solid, foliage is walk-through, and the main walking routes remain clear. Geometry is static and instanced rather than spawning separate animated trees.
+
+The balancing basin holds a **0.4 m shallow water surface above the existing deck**. It is not an excavated lake or a swimming simulation: stepping off the bank lands on the deck beneath the water. The bank and lookout use solid curved geometry and three shallow steps; normal radial gravity still applies. A separate non-shadow-casting sunline feed lights this side without changing the existing cached sun shadow.
+
+On the **G** map, select **Stillwater shoreline**, **Water-management pavilion**, or **Meridian-facing lookout** for local access guidance. These are public, unsaved waypoint targets, not new discoveries or jobs. The pavilion's displays and equipment are descriptive scenery. A connecting tram route is not implemented; use the existing menu jumps to return to the other districts.
 
 ## Beneath Meridian
 
@@ -191,11 +201,14 @@ The production files are in `dist/`. Serve that folder with an ordinary static w
 - `src/habitat.js`: cylinder radius (`360 m`), length (`1800 m`), spawn point, eye height, gravity, `VIEW_DISTANCE`, and district placements (`GREENWAY_PLACEMENT`, `MERIDIAN_PLACEMENT`).
 - `src/district-placement.js`: pure Y-axis placement helper translating authored local district coordinates to world space.
 - `src/cylinder-math.js`: allocation-free wrapped angles and explicit horizontal/height-aware physical distances.
-- `src/world.js`: background landscape, beacons, and district integration. Clears procedural scenery from both hand-built neighborhoods and combines solid collision footprints.
+- `src/world.js`: background landscape, beacons, and district integration. Clears procedural scenery from authored neighborhoods and Stillwater Reserve, and combines solid collision footprints.
 - `src/village.js`: neighborhood buildings, market square, orchard, steps, overlook, and furniture.
 - `src/farm.js`: greenhouse interior and instanced structural frame, crop rows, irrigation crossings, utility yard, animated rotor and pump.
 - `src/city-streets.js`: seven civic blocks, streets/plaza, instanced avenue furniture and trees, and wayfinding.
 - `src/library.js` and `src/library-layout.js`: public reading-room geometry and furniture, exhibits, local lighting, matching collision solids, and shared doorway/table/reader coordinates.
+- `src/reservoir-layout.js` and `src/reservoir.js`: wrapped opposite-wall bounds, shared paths and public targets, shallow balancing basin, stepped banks/lookout, and local sunline lighting.
+- `src/woodland.js`: deterministic mixed-species groves, tree-age variation, instanced crowns/trunks, shrubs, ferns, and curved leaf-litter patches.
+- `src/reservoir-pavilion.js`: public water-management pavilion, descriptive exhibits, treatment equipment, and matching physical solids.
 - `src/city-tower.js`: accessible lobby/Skyroom, landmark silhouette, elevated viewing terraces, and lift structures.
 - `src/city-layout.js` and `src/city-transit.js`: fixed city bounds/landmarks (including explicit floor `height`), and canonical exported `CITY_LIFT_STOPS` height/range-gated lift destinations.
 - `src/service-layout.js` and `src/service-level.js`: signed-depth bounds, stable discoveries with explicit `SERVICE_FLOOR` `height`, service pavilion, enclosed utility rooms, machinery, physical obstacles, and isolated underground lighting.
@@ -226,6 +239,7 @@ The production files are in `dist/`. Serve that folder with an ordinary static w
 - `checks/browser.spec.js`, `checks/navigation.spec.js`, `checks/tram.spec.js`, `checks/world.html`, and `playwright.config.js`: retained real-browser lifecycle, audio, authored-world, map/waypoint, civilian tram, compact layout, and WebGL regressions.
 - `checks/city-life.spec.js`: rendered city dwell poses, physical anchors, simulation-time armillary motion, pause invariance, and dynamic shadow-cache exclusions.
 - `checks/library.spec.js`: real doorway/furniture/ceiling collision, exhibit and local-light rendering, seated reader support, and native map/entry/exit/pause behavior.
+- `tests/reservoir.test.js` and `checks/reservoir.spec.js`: opposite-wall seam, inward orientation/gravity, actual shoreline/pavilion traversal, woodland form/height variation, and native menu/map access.
 
 Coordinates use the Y axis along the cylinder. At angle `theta` and inward height `h` relative to the living surface (negative below it):
 
