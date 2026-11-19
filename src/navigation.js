@@ -10,6 +10,7 @@ import { AXIAL_HEIGHT, ENDCAP_HUBS, getAxialHub } from "./sunline-layout.js";
 import { SUNLINE_TRANSFERS } from "./sunline-transit.js";
 import { TRAM_THETA, TRAM_HEIGHT, TRAM_STOPS } from "./tram-layout.js";
 import { LIBRARY_TARGET } from "./library-layout.js";
+import { RESERVOIR_TARGETS } from "./reservoir-layout.js";
 
 const TWO_PI = Math.PI * 2;
 const SEAM_MIN = -Math.PI / 2;
@@ -125,6 +126,9 @@ const tramAccessTargets = TRAM_STOPS.map((stop) => {
 });
 
 TARGET_RANGE_BY_ID.set(LIBRARY_TARGET.id, LIBRARY_TARGET.range);
+for (const target of RESERVOIR_TARGETS) {
+  TARGET_RANGE_BY_ID.set(target.id, target.range);
+}
 
 export const NAV_TARGETS = Object.freeze([
   ...landmarkTargets,
@@ -132,6 +136,7 @@ export const NAV_TARGETS = Object.freeze([
   ...sunlineAccessTargets,
   ...tramAccessTargets,
   LIBRARY_TARGET,
+  ...RESERVOIR_TARGETS,
 ]);
 
 const TARGET_BY_ID = new Map(NAV_TARGETS.map((target) => [target.id, target]));

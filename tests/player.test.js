@@ -81,6 +81,19 @@ test("fast falls land on thin elevated decks instead of skipping through", () =>
   });
 });
 
+test("rounded axial contact retains support while a farther footprint does not", () => {
+  const narrowDeck = { theta: 0, y: 0, width: 4, depth: 0.5, base: 0, height: 1 };
+  scenario([narrowDeck], ({ player, state }) => {
+    player.teleport({ theta: 0, y: 0.7, height: 1 });
+    assert.equal(state().height, 1);
+    assert.equal(state().grounded, true);
+
+    player.teleport({ theta: 0, y: 0.700001, height: 1 });
+    assert.equal(state().height, 1);
+    assert.equal(state().grounded, false);
+  });
+});
+
 test("jumping beneath a ceiling cannot push the head through it", () => {
   const ceiling = { ...deck, base: 3, height: 0.3 };
   scenario([ceiling], ({ player, key, frames, state }) => {

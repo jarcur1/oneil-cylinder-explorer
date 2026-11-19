@@ -24,6 +24,8 @@ import { createSunline } from "./sunline.js";
 import { createTram } from "./tram.js";
 import { LANDMARKS } from "./landmarks.js";
 import { wrappedDeltaTheta } from "./cylinder-math.js";
+import { createReservoir } from "./reservoir.js";
+import { inReservoir } from "./reservoir-layout.js";
 
 // Deterministic PRNG (Mulberry32)
 function createRng(seed = 0x5a17e) {
@@ -202,6 +204,15 @@ export function createWorld(scene, camera, saved = {}) {
         r = 0.22;
         g = 0.28;
         b = 0.32;
+      }
+
+      // The authored reserve replaces the overhead agricultural strips.
+      if (inReservoir(theta * RADIUS, y)) {
+        const variation = 0.025 * Math.sin(theta * 35 + y * 0.021) +
+          0.018 * Math.cos(y * 0.047 - theta * 21);
+        r = 0.18 + variation;
+        g = 0.39 + variation;
+        b = 0.19 + variation * 0.6;
       }
 
       colors[vIdx * 3 + 0] = r;
@@ -463,7 +474,7 @@ export function createWorld(scene, camera, saved = {}) {
     // Both authored neighborhoods replace random scenery, including margins.
     const arc = wrappedDeltaTheta(theta, 0) * RADIUS;
     const margin = Math.max(width, depth) / 2 + 5;
-    if (inDistrict(arc, y, margin) || inCity(arc, y, margin)) continue;
+    if (inDistrict(arc, y, margin) || inCity(arc, y, margin) || inReservoir(arc, y, margin)) continue;
 
     // 1. Spawn clearing
     const dSpawnArc = shortestArc(theta, SPAWN.theta) * RADIUS;
@@ -628,7 +639,7 @@ export function createWorld(scene, camera, saved = {}) {
     const y = -treeHalfSpan + rng() * (treeHalfSpan * 2);
     const theta = rng() * Math.PI * 2;
     const arc = wrappedDeltaTheta(theta, 0) * RADIUS;
-    if (inDistrict(arc, y, 6) || inCity(arc, y, 6)) continue;
+    if (inDistrict(arc, y, 6) || inCity(arc, y, 6) || inReservoir(arc, y, 6)) continue;
 
     const dSpawnArc = shortestArc(theta, SPAWN.theta) * RADIUS;
     if (Math.hypot(dSpawnArc, Math.abs(y - SPAWN.y)) < 24.0) continue;
@@ -850,6 +861,7 @@ export function createWorld(scene, camera, saved = {}) {
   const maintenance = createMaintenance(districtGroup, saved.maintenancePhase);
   const service = createServiceLevel(meridianGroup);
   const tram = createTram(districtGroup);
+  const reservoir = createReservoir(districtGroup);
   obstacles.push(
     ...copyTranslatedObstacles(village.obstacles, GREENWAY_PLACEMENT),
     ...copyTranslatedObstacles(farm.obstacles, GREENWAY_PLACEMENT),
@@ -860,6 +872,7 @@ export function createWorld(scene, camera, saved = {}) {
     ...copyTranslatedObstacles(service.obstacles, MERIDIAN_PLACEMENT),
     ...sunline.obstacles,
     ...tram.obstacles,
+    ...reservoir.obstacles,
     // The living surface is a deck, not the outermost pressure-hull floor.
     // Its underside stays solid above the enclosed service spaces.
     {

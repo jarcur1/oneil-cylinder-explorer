@@ -2,6 +2,7 @@ import { RADIUS, LENGTH } from "./habitat.js";
 import { DISTRICT_NAME, DISTRICT_BOUNDS } from "./district-layout.js";
 import { CITY_NAME, CITY_BOUNDS } from "./city-layout.js";
 import { SERVICE_NAME, SERVICE_BOUNDS } from "./service-layout.js";
+import { RESERVOIR_NAME, RESERVOIR_BOUNDS } from "./reservoir-layout.js";
 import {
   ENDCAP_HUBS,
   SUNLINE_TRACK_MIN_Y,
@@ -615,6 +616,14 @@ export function createHabitatMap({ onSelect, onClose } = {}) {
         CITY_BOUNDS,
         CITY_NAME,
         "map-zone-city",
+        -6,
+        occupiedLabelBoxes,
+      );
+      drawZoneRect(
+        zoneGroup,
+        RESERVOIR_BOUNDS,
+        RESERVOIR_NAME,
+        "map-zone-district",
         -6,
         occupiedLabelBoxes,
       );

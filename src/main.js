@@ -6,6 +6,7 @@ import { createPlayer } from "./player.js";
 import { DISTRICT_NAME, inDistrict } from "./district-layout.js";
 import { createSoundscape } from "./soundscape.js";
 import { CITY_NAME, CITY_ARRIVAL, inCity } from "./city-layout.js";
+import { RESERVOIR_NAME, RESERVOIR_ARRIVAL, inReservoir } from "./reservoir-layout.js";
 import { getCityLift } from "./city-transit.js";
 import { CARETAKER } from "./maintenance-layout.js";
 import { createSaveStore } from "./save-game.js";
@@ -33,6 +34,10 @@ let fatalError = false;
 
 function showError(error) {
   fatalError = true;
+  for (const id of ["start", "start-city", "start-greenway", "start-reservoir"]) {
+    const button = $(id);
+    if (button) button.disabled = true;
+  }
   if (mapButton) {
     mapButton.disabled = true;
     mapButton.setAttribute("aria-expanded", "false");
@@ -73,6 +78,8 @@ try {
     visitCityBtn: $("visit-city"),
     startCityBtn: $("start-city"),
     startGreenwayBtn: $("start-greenway"),
+    startReservoirBtn: $("start-reservoir"),
+    teleportReservoirBtn: $("teleport-reservoir"),
     newGameBtn: $("new-game"),
     soundBtn: $("sound"),
     loading: $("loading"),
@@ -435,6 +442,14 @@ try {
     enter();
   }
 
+  function visitReservoir() {
+    if (fatalError || mapOpen || habitatMap.isOpen()) return;
+    cancelPendingTransfer();
+    closeDialogue();
+    player.teleport(RESERVOIR_ARRIVAL);
+    enter();
+  }
+
   function renderScene() {
     if (fatalError) return;
     player.getState(playerState);
@@ -709,6 +724,8 @@ try {
       areaText = CITY_NAME.toUpperCase();
     } else if (inDistrict(arc, state.y)) {
       areaText = DISTRICT_NAME.toUpperCase();
+    } else if (state.height >= -1 && state.height < 8 && inReservoir(arc, state.y)) {
+      areaText = RESERVOIR_NAME.toUpperCase();
     } else if (state.height < 2 && state.y < -ENDCAP_AREA_Y) {
       areaText = "ENDCAP A · RIM ACCESS";
     } else if (state.height < 2 && state.y > ENDCAP_AREA_Y) {
@@ -890,6 +907,8 @@ try {
 
   startButton.addEventListener("click", visitEndcap);
   ui.startCityBtn.addEventListener("click", visitCity);
+  ui.startReservoirBtn.addEventListener("click", visitReservoir);
+  ui.teleportReservoirBtn.addEventListener("click", visitReservoir);
   ui.visitEndcapBtn.addEventListener("click", visitEndcap);
   ui.startGreenwayBtn.addEventListener("click", () => {
     if (fatalError || mapOpen || habitatMap.isOpen()) return;
@@ -1253,6 +1272,7 @@ try {
   startButton.disabled = false;
   ui.startCityBtn.disabled = false;
   ui.startGreenwayBtn.disabled = false;
+  ui.startReservoirBtn.disabled = false;
   setAttr(ui.mapBtn, "aria-expanded", false);
   ui.mapBtn.disabled = false;
   ui.loading.textContent =
