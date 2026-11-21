@@ -22,7 +22,7 @@ import {
 import { CITY_LIFT_STOPS, getCityLift } from "../src/city-transit.js";
 import { SUNLINE_TRANSFERS, getSunlineTransfer } from "../src/sunline-transit.js";
 import { TRAM_THETA, TRAM_HEIGHT, TRAM_STOPS, STILLWATER_TRAM_STOPS, STILLWATER_TRAM_Y } from "../src/tram-layout.js";
-import { DELIVERY_STATIONS, SUPPLY_STATIONS } from "../src/delivery-layout.js";
+import { DELIVERY_STATIONS, SUPPLY_STATIONS, PLANTING_STATIONS } from "../src/delivery-layout.js";
 import { LIBRARY_LAYOUT, LIBRARY_TARGET } from "../src/library-layout.js";
 import { createDelivery } from "../src/delivery.js";
 import { createMaintenanceState } from "../src/maintenance-state.js";
@@ -641,6 +641,34 @@ test("live delivery, maintenance, and sunline jobs follow actual state/view adva
       assert.equal(delivery.interact({ ...state(), y: state().y + 4 }), null);
       assert.equal(delivery.interact(state()).phase, "complete");
       assert.equal(delivery.getSupplyPhase(), "complete");
+      assert.equal(delivery.interact(state()), null);
+      assert.equal(nav.getWaypoint(state(), views(state())).target.name, "Glasshouse 01 seedling dispatch");
+      assert.equal(nav.getWaypoint(state(), views(state())).guidance.name, "Meridian Plaza");
+      player.teleport({
+        theta: PLANTING_STATIONS.pickup.s / RADIUS,
+        y: PLANTING_STATIONS.pickup.y,
+        height: 0,
+      });
+      assert.equal(nav.getWaypoint(state(), views(state())).arrived, true);
+      assert.equal(delivery.interact(state()).phase, "carrying");
+      assert.equal(delivery.getView(state()).inventory, "Woodland seedling tray");
+      const guidance = (pose) => nav.getWaypoint(pose, views(pose)).guidance.name;
+      assert.equal(guidance(state()), "Glasshouse 01");
+      assert.equal(guidance({ ...state(), traversalMode: "tram", height: 13, rideLineId: "line-01" }), "Disembark at Meridian Plaza");
+      assert.equal(guidance({ ...state(), ...TRAM_STOPS.find((stop) => stop.id === "tram-plaza") }), "Meridian South");
+      assert.equal(guidance({ ...state(), traversalMode: "tram", height: 13, rideLineId: "line-02" }), "Disembark at Stillwater Reserve");
+      const plot = {
+        theta: PLANTING_STATIONS.dropoff.s / RADIUS - 2 / RADIUS - 2 * Math.PI,
+        y: PLANTING_STATIONS.dropoff.y,
+        height: 0,
+      };
+      player.teleport(plot);
+      assert.equal(guidance(state()), "Stillwater restoration plot");
+      assert.equal(nav.getWaypoint(state(), views(state())).arrived, true);
+      assert.equal(delivery.interact({ ...state(), grounded: false }), null);
+      assert.equal(delivery.interact({ ...state(), height: 13, traversalMode: "tram" }), null);
+      assert.equal(delivery.interact(state()).phase, "complete");
+      assert.equal(delivery.getPlantingPhase(), "complete");
       assert.equal(delivery.interact(state()), null);
       assert.equal(nav.getWaypoint(state(), views(state())), null);
 
