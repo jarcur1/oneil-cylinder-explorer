@@ -206,6 +206,32 @@ const TRAM_GUIDANCE_BY_LINE = new Map(TRAM_LINES.map((line) => {
   return [line.id, { guidance, byTarget }];
 }));
 
+const plantingTramStops = new Map(tramAccessTargets.map((stop) => [stop.id, stop]));
+const glasshousePad = plantingTramStops.get("tram-glasshouse");
+const plazaPad = plantingTramStops.get("tram-plaza");
+const meridianSouthPad = plantingTramStops.get("tram-meridian-south");
+const stillwaterPad = plantingTramStops.get("tram-stillwater");
+const transferMidpoint = (plazaPad.y + glasshousePad.y) / 2;
+
+// Pick the next boarding pad on foot and the correct exit on the active line.
+// No visit history: walking and menu arrivals can join the route at any point.
+function resolvePlantingTram(playerState, leg) {
+  if (playerState.traversalMode === "tram") {
+    const line = playerState.rideLineId ?? AXIAL_TRAM_LINE.id;
+    const stop = line === STILLWATER_TRAM_LINE.id
+      ? (leg === "carrying" ? stillwaterPad : meridianSouthPad)
+      : (leg === "carrying" ? plazaPad : glasshousePad);
+    return TRAM_GUIDANCE_BY_LINE.get(line)?.byTarget.get(stop.id);
+  }
+  const onReserveSide = Math.cos(playerState.theta) < 0;
+  if (leg === "carrying") {
+    if (onReserveSide) return null;
+    return playerState.y < transferMidpoint ? glasshousePad : meridianSouthPad;
+  }
+  if (onReserveSide) return stillwaterPad;
+  return playerState.y >= transferMidpoint ? plazaPad : null;
+}
+
 const sortedTramStops = [...TRAM_STOPS].sort((a, b) => a.y - b.y);
 
 export const NAV_CONNECTIONS = Object.freeze([
@@ -372,8 +398,10 @@ function pickTramDisembark(playerState, target) {
 }
 
 function resolveGuidance(playerState, target) {
+  const plantingLeg = target.plantingLeg;
   if (playerState.traversalMode === "tram") {
-    return pickTramDisembark(playerState, target);
+    return (plantingLeg && resolvePlantingTram(playerState, plantingLeg)) ??
+      pickTramDisembark(playerState, target);
   }
   const playerLayer = getNavigationLayer(playerState.height);
   const targetLayer = target.layer;
@@ -434,7 +462,7 @@ function resolveGuidance(playerState, target) {
   if (targetOnSkywalk) {
     return SKYWALK_LIFT_UP;
   }
-  return target;
+  return (plantingLeg && resolvePlantingTram(playerState, plantingLeg)) || target;
 }
 
 function resolveJobTarget(jobId, jobViews, scratch) {
@@ -470,6 +498,7 @@ function resolveJobTarget(jobId, jobViews, scratch) {
   scratch.height = height;
   scratch.layer = getNavigationLayer(height);
   scratch.kind = "job";
+  scratch.plantingLeg = jobId === "delivery" && view.id === "planting" ? view.phase : null;
   scratch.range = Number.isFinite(raw.range)
     ? raw.range
     : jobId === "delivery"
