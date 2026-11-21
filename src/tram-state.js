@@ -1,34 +1,43 @@
 import { horizontalDistance } from "./cylinder-math.js";
+import { RADIUS } from "./habitat.js";
 import {
-  TRAM_THETA,
+  AXIAL_TRAM_LINE,
   TRAM_HEIGHT,
   TRAM_SPEED,
   TRAM_END_DWELL,
   TRAM_DWELL,
   TRAM_BOARD_WINDOW,
-  TRAM_STOPS,
 } from "./tram-layout.js";
 
 const FLOOR_TOLERANCE = 0.35;
 
-const STOP_BY_ID = new Map(TRAM_STOPS.map((stop) => [stop.id, stop]));
+const LINE_CACHE = new WeakMap();
 
-const SEGMENTS = (() => {
+function compileLine(line) {
+  const stops = line.stops;
+  const axial = line.axis === "y";
+  const stopPosition = axial ? (stop) => stop.y : (stop) => stop.trackTheta;
+  const distanceScale = axial ? 1 : RADIUS - TRAM_HEIGHT;
+  const STOP_BY_ID = new Map(stops.map((stop) => [stop.id, stop]));
+
+  const SEGMENTS = (() => {
   const segments = [];
-  const count = TRAM_STOPS.length;
+  const count = stops.length;
   let cumDwell = 0;
   let cumDist = 0;
 
   function pushLeg(fromStop, toStop, isEndpoint, direction) {
     const dwellDuration = isEndpoint ? TRAM_END_DWELL : TRAM_DWELL;
-    const legDistance = Math.abs(toStop.y - fromStop.y);
+    const legDistance = Math.abs(stopPosition(toStop) - stopPosition(fromStop)) * distanceScale;
     const dwellStart = cumDwell + cumDist / TRAM_SPEED;
     cumDwell += dwellDuration;
     const dwellEnd = cumDwell + cumDist / TRAM_SPEED;
     cumDist += legDistance;
     const travelEnd = cumDwell + cumDist / TRAM_SPEED;
-    const minY = Math.min(fromStop.y, toStop.y);
-    const maxY = Math.max(fromStop.y, toStop.y);
+    const from = stopPosition(fromStop);
+    const to = stopPosition(toStop);
+    const minY = Math.min(from, to);
+    const maxY = Math.max(from, to);
 
     segments.push(
       Object.freeze({
@@ -36,11 +45,11 @@ const SEGMENTS = (() => {
         start: dwellStart,
         end: dwellEnd,
         nextLegEnd: travelEnd,
-        y: fromStop.y,
-        startY: fromStop.y,
-        endY: fromStop.y,
-        minY: fromStop.y,
-        maxY: fromStop.y,
+        y: from,
+        startY: from,
+        endY: from,
+        minY: from,
+        maxY: from,
         stationId: fromStop.id,
         nextStationId: toStop.id,
         direction,
@@ -53,9 +62,9 @@ const SEGMENTS = (() => {
         start: dwellEnd,
         end: travelEnd,
         nextLegEnd: travelEnd,
-        y: fromStop.y,
-        startY: fromStop.y,
-        endY: toStop.y,
+        y: from,
+        startY: from,
+        endY: to,
         minY,
         maxY,
         stationId: null,
@@ -66,10 +75,10 @@ const SEGMENTS = (() => {
   }
 
   for (let i = 0; i < count - 1; i++) {
-    pushLeg(TRAM_STOPS[i], TRAM_STOPS[i + 1], i === 0, 1);
+    pushLeg(stops[i], stops[i + 1], i === 0, 1);
   }
   for (let i = count - 1; i > 0; i--) {
-    pushLeg(TRAM_STOPS[i], TRAM_STOPS[i - 1], i === count - 1, -1);
+    pushLeg(stops[i], stops[i - 1], i === count - 1, -1);
   }
 
   return Object.freeze(segments);
@@ -78,7 +87,7 @@ const SEGMENTS = (() => {
 const TOTAL_PERIOD = SEGMENTS[SEGMENTS.length - 1].end;
 
 const BOARD_DESCRIPTORS = new Map(
-  TRAM_STOPS.map((stop) => [
+  stops.map((stop) => [
     stop.id,
     Object.freeze({
       kind: "board",
@@ -90,7 +99,7 @@ const BOARD_DESCRIPTORS = new Map(
 );
 
 const EXIT_DESCRIPTORS = new Map(
-  TRAM_STOPS.map((stop) => [
+  stops.map((stop) => [
     stop.id,
     Object.freeze({
       kind: "exit",
@@ -102,13 +111,15 @@ const EXIT_DESCRIPTORS = new Map(
 );
 
 const INSPECT_DESCRIPTORS = new Map(
-  TRAM_STOPS.map((stop) => [
+  stops.map((stop) => [
     stop.id,
     Object.freeze({
       kind: "inspect",
       stationId: stop.id,
       prompt: `Inspect tram stop · ${stop.name}`,
-      message: `${stop.name} · Elevated civilian shuttle serves Greenway Gateway, Market Square, Glasshouse 01, Meridian Plaza, and Civic Tower.`,
+      message: axial
+        ? `${stop.name} · Elevated civilian shuttle serves Greenway Gateway, Market Square, Glasshouse 01, Meridian Plaza, and Civic Tower.`
+        : `${stop.name} · Elevated civilian shuttle serves ${stops.map((entry) => entry.name).join(" and ")}.`,
     }),
   ]),
 );
@@ -125,10 +136,14 @@ function findSegment(t) {
 
 function sampleSegmentY(seg, t) {
   if (seg.phase === "dwell") return seg.y;
-  const rawY = seg.startY + seg.direction * TRAM_SPEED * (t - seg.start);
+  const rawY = seg.startY + seg.direction * (axial ? TRAM_SPEED : TRAM_SPEED / distanceScale) * (t - seg.start);
   if (rawY < seg.minY) return seg.minY;
   if (rawY > seg.maxY) return seg.maxY;
   return rawY;
+}
+
+  return { STOP_BY_ID, SEGMENTS, TOTAL_PERIOD, BOARD_DESCRIPTORS, EXIT_DESCRIPTORS,
+    INSPECT_DESCRIPTORS, findSegment, sampleSegmentY };
 }
 
 function isAtGroundStop(playerState, stop) {
@@ -159,7 +174,7 @@ function isAtGroundStop(playerState, stop) {
   );
 }
 
-function findEligibleGroundStop(playerState) {
+function findEligibleGroundStop(playerState, stops) {
   if (!playerState?.grounded || playerState.traversalMode !== "walk") {
     return null;
   }
@@ -170,8 +185,8 @@ function findEligibleGroundStop(playerState) {
   ) {
     return null;
   }
-  for (let i = 0; i < TRAM_STOPS.length; i++) {
-    const stop = TRAM_STOPS[i];
+  for (let i = 0; i < stops.length; i++) {
+    const stop = stops[i];
     if (isAtGroundStop(playerState, stop)) {
       return stop;
     }
@@ -179,7 +194,15 @@ function findEligibleGroundStop(playerState) {
   return null;
 }
 
-export function createTramState() {
+export function createTramState(line = AXIAL_TRAM_LINE) {
+  let compiled = LINE_CACHE.get(line);
+  if (!compiled) {
+    compiled = compileLine(line);
+    LINE_CACHE.set(line, compiled);
+  }
+  const { STOP_BY_ID, SEGMENTS, TOTAL_PERIOD, BOARD_DESCRIPTORS, EXIT_DESCRIPTORS,
+    INSPECT_DESCRIPTORS, findSegment, sampleSegmentY } = compiled;
+  const stops = line.stops;
   let clock = 0;
 
   function update(dt) {
@@ -193,8 +216,8 @@ export function createTramState() {
   function getPose(out = {}) {
     const target = out && typeof out === "object" ? out : {};
     const seg = findSegment(clock);
-    target.theta = TRAM_THETA;
-    target.y = sampleSegmentY(seg, clock);
+    target.theta = line.axis === "y" ? line.fixed : sampleSegmentY(seg, clock);
+    target.y = line.axis === "y" ? sampleSegmentY(seg, clock) : line.fixed;
     target.height = TRAM_HEIGHT;
     target.speed = seg.phase === "dwell" ? 0 : TRAM_SPEED;
     return target;
@@ -204,15 +227,15 @@ export function createTramState() {
     const target = out && typeof out === "object" ? out : {};
     const seg = findSegment(clock);
     const isDwell = seg.phase === "dwell";
-    target.theta = TRAM_THETA;
-    target.y = sampleSegmentY(seg, clock);
+    target.theta = line.axis === "y" ? line.fixed : sampleSegmentY(seg, clock);
+    target.y = line.axis === "y" ? sampleSegmentY(seg, clock) : line.fixed;
     target.height = TRAM_HEIGHT;
     target.speed = isDwell ? 0 : TRAM_SPEED;
     target.phase = seg.phase;
     target.stationId = seg.stationId;
     target.nextStationId = seg.nextStationId;
     target.direction = seg.direction;
-    target.destinationStationId = TRAM_STOPS[seg.direction > 0 ? TRAM_STOPS.length - 1 : 0].id;
+    target.destinationStationId = stops[seg.direction > 0 ? stops.length - 1 : 0].id;
     target.departureIn = isDwell ? seg.end - clock : 0;
     target.arrivalIn = isDwell ? seg.nextLegEnd - clock : seg.end - clock;
     return target;
@@ -244,7 +267,7 @@ export function createTramState() {
     target.boardingOpen = docked && target.departureIn >= TRAM_BOARD_WINDOW;
     target.direction = visit.direction;
     target.destinationStationId =
-      TRAM_STOPS[visit.direction > 0 ? TRAM_STOPS.length - 1 : 0].id;
+      stops[visit.direction > 0 ? stops.length - 1 : 0].id;
     return target;
   }
 
@@ -254,6 +277,7 @@ export function createTramState() {
     const departureIn = seg.phase === "dwell" ? seg.end - clock : 0;
 
     if (playerState.traversalMode === "tram") {
+      if (playerState.rideLineId != null && playerState.rideLineId !== line.id) return null;
       if (
         seg.phase === "dwell" &&
         seg.stationId !== null &&
@@ -264,7 +288,7 @@ export function createTramState() {
       return null;
     }
 
-    const stop = findEligibleGroundStop(playerState);
+    const stop = findEligibleGroundStop(playerState, stops);
     if (!stop) return null;
 
     if (
@@ -297,7 +321,8 @@ export function createTramState() {
     }
 
     if (kind === "exit") {
-      return playerState.traversalMode === "tram";
+      return playerState.traversalMode === "tram" &&
+        (playerState.rideLineId == null || playerState.rideLineId === line.id);
     }
 
     return false;

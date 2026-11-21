@@ -2,6 +2,7 @@ import * as THREE from "three";
 import { RADIUS } from "./habitat.js";
 import { setSurfaceMatrix } from "./surface.js";
 import { RESERVOIR_LAYOUT, reservoirS, reservoirY } from "./reservoir-layout.js";
+import { inStillwaterTramCorridor } from "./tram-layout.js";
 
 // Groves are deliberately irregular, leaving open glades between them. The
 // eastern and northern groves are drier; those by the shore favor birch.
@@ -97,6 +98,7 @@ export function createWoodland(parent) {
     const s = grove[0] + clustered() * grove[2];
     const y = grove[1] + clustered() * grove[3];
     if (!clearOfPublicSpace(s, y, 2.2)) continue;
+    if (inStillwaterTramCorridor(reservoirS(s), reservoirY(y), 5)) continue;
     if (trees.some((tree) => Math.hypot(tree.s - s, tree.y - y) < 2.35)) continue;
     const type = random() < 0.72 ? grove[4] : ["oak", "birch", "pine"][Math.floor(random() * 3)];
     const young = random() < 0.25;
@@ -165,6 +167,7 @@ export function createWoodland(parent) {
       const s = centerS + clustered() * 3.5;
       const y = centerY + clustered() * 3.5;
       if (!clearOfPublicSpace(s, y, 2.5)) continue;
+      if (inStillwaterTramCorridor(reservoirS(s), reservoirY(y), 5)) continue;
       const width = 0.9 + random() * 1.6;
       add("shrubs", s, y, 0, width, width * (0.65 + random() * 0.4),
         0.7 + random() * 1.1, random() * Math.PI * 2, pickColor("shrub"));

@@ -1,4 +1,5 @@
 import { RADIUS, GREENWAY_PLACEMENT, MERIDIAN_PLACEMENT } from "./habitat.js";
+import { RESERVOIR_THETA } from "./reservoir-layout.js";
 
 export const TRAM_THETA = 0;
 export const TRAM_HEIGHT = 13;
@@ -93,3 +94,88 @@ export const TRAM_GANTRY_YS = (() => {
   }
   return Object.freeze(ys);
 })();
+
+// Line 02 runs around the hull at constant world y. Authored s values are
+// ground-arc metres (s = theta * RADIUS); travel speed is physical car speed
+// along the arc at TRAM_HEIGHT, i.e. (RADIUS - TRAM_HEIGHT) * |deltaTheta|.
+export const STILLWATER_TRAM_Y = 340;
+export const STILLWATER_TRAM_MIN_S = 10;
+export const STILLWATER_TRAM_MAX_S = RESERVOIR_THETA * RADIUS - 6;
+// Lateral half-width of guideway, gantries, platforms, masts and ground pads.
+export const STILLWATER_TRAM_CORRIDOR_HALF_WIDTH = 7;
+// Platforms, doors and ground pads are on the south (-y) side of the track.
+export const STILLWATER_TRAM_PAD_OFFSET_Y = -2.7;
+
+function stillwaterStop(id, name, dockS, hint, landmarkIds) {
+  return Object.freeze({
+    id,
+    name,
+    theta: dockS / RADIUS,
+    y: STILLWATER_TRAM_Y + STILLWATER_TRAM_PAD_OFFSET_Y,
+    height: 0,
+    range: 3.2,
+    yaw: 0,
+    trackTheta: dockS / RADIUS,
+    hint,
+    landmarkIds: Object.freeze(landmarkIds),
+  });
+}
+
+export const STILLWATER_TRAM_STOPS = Object.freeze([
+  stillwaterStop(
+    "tram-meridian-south",
+    "Meridian South",
+    16,
+    "Line 02 pad south of Meridian, east of the promenade's southern end.",
+    [],
+  ),
+  stillwaterStop(
+    "tram-stillwater",
+    "Stillwater Reserve",
+    RESERVOIR_THETA * RADIUS - 12,
+    "Line 02 pad beside the Stillwater entrance path.",
+    ["stillwater-shore", "stillwater-pavilion", "stillwater-lookout"],
+  ),
+]);
+
+export const AXIAL_TRAM_LINE = Object.freeze({
+  id: "line-01",
+  axis: "y",
+  title: "CIVIC TRAM · LINE 01",
+  sceneName: "civilian_tram",
+  linkId: "link-civilian-tram",
+  fixed: TRAM_THETA,
+  height: TRAM_HEIGHT,
+  stops: TRAM_STOPS,
+  directionLabels: Object.freeze({ forward: "Northbound", reverse: "Southbound" }),
+});
+
+export const STILLWATER_TRAM_LINE = Object.freeze({
+  id: "line-02",
+  axis: "theta",
+  title: "STILLWATER TRAM · LINE 02",
+  sceneName: "stillwater_tram",
+  linkId: "link-stillwater-tram",
+  fixed: STILLWATER_TRAM_Y,
+  height: TRAM_HEIGHT,
+  stops: STILLWATER_TRAM_STOPS,
+  directionLabels: Object.freeze({ forward: "Eastbound", reverse: "Westbound" }),
+});
+
+export const TRAM_LINES = Object.freeze([AXIAL_TRAM_LINE, STILLWATER_TRAM_LINE]);
+
+// Arc position on the continuous eastward route, unwrapped into [-PI/2, 3PI/2).
+export function stillwaterRouteS(s) {
+  const turn = 2 * Math.PI * RADIUS;
+  return ((((s + (Math.PI / 2) * RADIUS) % turn) + turn) % turn) - (Math.PI / 2) * RADIUS;
+}
+
+// Shared clearance for scenery generators: guideway, gantries, platforms and pads.
+export function inStillwaterTramCorridor(s, y, margin = 0) {
+  const routeS = stillwaterRouteS(s);
+  return (
+    routeS >= STILLWATER_TRAM_MIN_S - margin &&
+    routeS <= STILLWATER_TRAM_MAX_S + margin &&
+    Math.abs(y - STILLWATER_TRAM_Y) <= STILLWATER_TRAM_CORRIDOR_HALF_WIDTH + margin
+  );
+}
