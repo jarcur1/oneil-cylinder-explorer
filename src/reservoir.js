@@ -1,9 +1,11 @@
 import * as THREE from "three";
+import { RADIUS } from "./habitat.js";
 import { addSurfaceBox, addSurfacePatch, addSurfaceSign } from "./surface.js";
 import { addCivicSolid } from "./civic-primitives.js";
 import { RESERVOIR_LAYOUT, reservoirS, reservoirY } from "./reservoir-layout.js";
 import { createWoodland } from "./woodland.js";
 import { createReservoirPavilion } from "./reservoir-pavilion.js";
+import { STILLWATER_TRAM_STOPS } from "./tram-layout.js";
 
 export function createReservoir(parent) {
   const root = new THREE.Group();
@@ -25,6 +27,12 @@ export function createReservoir(parent) {
     addSurfaceBox(root, material, reservoirS(s), reservoirY(y), width, depth, height, base);
 
   for (const p of RESERVOIR_LAYOUT.paths) patch(path, p.s, p.y, p.width, p.depth, 0.025);
+  // Join the Line 02 ground pad to the existing northbound entrance path.
+  const tramPad = STILLWATER_TRAM_STOPS[1];
+  const entranceS = reservoirS(0);
+  const padS = tramPad.theta * RADIUS;
+  addSurfacePatch(root, path, (padS + entranceS) / 2, tramPad.y,
+    entranceS - padS, 3, 0.026).name = "stillwater_tram_entrance_connector";
   const basin = RESERVOIR_LAYOUT.basin;
   patch(bed, basin.s, basin.y, basin.width, basin.depth, 0.03).name = "reservoir_bed";
   const surface = patch(water, basin.s, basin.y, basin.width, basin.depth, basin.water);

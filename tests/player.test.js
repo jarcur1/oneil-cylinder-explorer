@@ -1019,6 +1019,26 @@ test("independent A then D strafe moves opposite lateral directions at walking s
   });
 });
 
+test("rideLineId follows the attached ride and clears on detach", () => {
+  scenario([], ({ player }) => {
+    const snapshot = {};
+    assert.equal(player.getState(snapshot).rideLineId, null);
+    const provider = {
+      lineId: "line-02",
+      getPose(out) {
+        Object.assign(out, { theta: 0.2, y: 340, height: 13, speed: 0 });
+      },
+    };
+    player.attachRide(provider);
+    assert.equal(player.getState(snapshot).rideLineId, "line-02");
+    player.teleport({ theta: 0.2, y: 337.3, height: 0 });
+    assert.equal(player.getState(snapshot).rideLineId, null);
+    delete provider.lineId;
+    player.attachRide(provider);
+    assert.equal(player.getState(snapshot).rideLineId, null);
+  });
+});
+
 test("attachRide binds provider, tracks dt=0 and disabled frames without advancing provider, and preserves free look", () => {
   const blockingObstacle = {
     theta: 0,

@@ -21,7 +21,7 @@ import {
 } from "../src/sunline-layout.js";
 import { CITY_LIFT_STOPS, getCityLift } from "../src/city-transit.js";
 import { SUNLINE_TRANSFERS, getSunlineTransfer } from "../src/sunline-transit.js";
-import { TRAM_THETA, TRAM_HEIGHT, TRAM_STOPS } from "../src/tram-layout.js";
+import { TRAM_THETA, TRAM_HEIGHT, TRAM_STOPS, STILLWATER_TRAM_STOPS, STILLWATER_TRAM_Y } from "../src/tram-layout.js";
 import { DELIVERY_STATIONS, SUPPLY_STATIONS } from "../src/delivery-layout.js";
 import { LIBRARY_LAYOUT, LIBRARY_TARGET } from "../src/library-layout.js";
 import { createDelivery } from "../src/delivery.js";
@@ -201,8 +201,8 @@ test("transit descriptors and navigation static tables are canonical, unique, an
     assert.ok(targetIds.has(stop.id), `Missing sunline transfer ${stop.id}`);
   }
 
-  // Canonical 5 tram ground station stops exist as kind "tram" (not landmarks)
-  for (const stop of TRAM_STOPS) {
+  // Both lines' ground station stops exist as kind "tram" (not landmarks)
+  for (const stop of [...TRAM_STOPS, ...STILLWATER_TRAM_STOPS]) {
     const target = NAV_TARGETS.find((t) => t.id === stop.id);
     assert.ok(target, `Missing tram target ${stop.id}`);
     assert.equal(target.kind, "tram");
@@ -223,15 +223,25 @@ test("transit descriptors and navigation static tables are canonical, unique, an
   const liftLinks = NAV_CONNECTIONS.filter((c) => c.type === "lift");
   assert.equal(liftLinks.length, 5);
   const tramLinks = NAV_CONNECTIONS.filter((c) => c.type === "tram");
-  assert.equal(tramLinks.length, 1);
-  assert.equal(tramLinks[0].from.layer, "surface");
-  assert.equal(tramLinks[0].to.layer, "surface");
-  assert.equal(tramLinks[0].from.theta, TRAM_THETA);
-  assert.equal(tramLinks[0].to.theta, TRAM_THETA);
-  assert.equal(tramLinks[0].from.height, TRAM_HEIGHT);
-  assert.equal(tramLinks[0].to.height, TRAM_HEIGHT);
-  assert.equal(tramLinks[0].from.y, TRAM_STOPS[0].y);
-  assert.equal(tramLinks[0].to.y, TRAM_STOPS[TRAM_STOPS.length - 1].y);
+  assert.equal(tramLinks.length, 2);
+  assert.deepEqual(new Set(tramLinks.map((link) => link.id)), new Set(["link-civilian-tram", "link-stillwater-tram"]));
+  const axialLink = tramLinks.find((link) => link.id === "link-civilian-tram");
+  assert.equal(axialLink.from.layer, "surface");
+  assert.equal(axialLink.to.layer, "surface");
+  assert.equal(axialLink.from.theta, TRAM_THETA);
+  assert.equal(axialLink.to.theta, TRAM_THETA);
+  assert.equal(axialLink.from.height, TRAM_HEIGHT);
+  assert.equal(axialLink.to.height, TRAM_HEIGHT);
+  assert.equal(axialLink.from.y, TRAM_STOPS[0].y);
+  assert.equal(axialLink.to.y, TRAM_STOPS[TRAM_STOPS.length - 1].y);
+  const stillwaterLink = tramLinks.find((link) => link.id === "link-stillwater-tram");
+  assert.equal(stillwaterLink.from.theta, STILLWATER_TRAM_STOPS[0].trackTheta);
+  assert.equal(stillwaterLink.to.theta, STILLWATER_TRAM_STOPS[1].trackTheta);
+  for (const endpoint of [stillwaterLink.from, stillwaterLink.to]) {
+    assert.equal(endpoint.y, STILLWATER_TRAM_Y);
+    assert.equal(endpoint.height, TRAM_HEIGHT);
+    assert.equal(endpoint.layer, "surface");
+  }
 
   // Local transit selectors retain exact guards after migration
   assert.equal(
@@ -1006,4 +1016,20 @@ test("tram targets, riding disembark guidance, wrong-level rejection, and ground
   assert.equal(ridingToServiceJob.guidance.y, plazaStop.y);
   assert.equal(ridingToServiceJob.guidance.height, TRAM_HEIGHT);
   assert.equal(ridingToServiceJob.guidance.name, `Disembark at ${plazaStop.name}`);
+});
+
+test("tram disembark guidance is scoped to the ridden line", () => {
+  const nav = createNavigation();
+  nav.select({ kind: "destination", id: "stillwater-shore" });
+  const rider = { theta: TRAM_THETA, y: STILLWATER_TRAM_Y, height: TRAM_HEIGHT, traversalMode: "tram" };
+  const stillwater = nav.getWaypoint({ ...rider, rideLineId: "line-02" }, {});
+  assert.equal(stillwater.guidance.theta, STILLWATER_TRAM_STOPS[1].trackTheta);
+  assert.equal(stillwater.guidance.y, STILLWATER_TRAM_Y);
+  assert.equal(stillwater.guidance.height, TRAM_HEIGHT);
+  assert.equal(stillwater.guidance.name, `Disembark at ${STILLWATER_TRAM_STOPS[1].name}`);
+  const axial = nav.getWaypoint({ ...rider, rideLineId: "line-01" }, {});
+  const legacy = nav.getWaypoint(rider, {});
+  assert.deepEqual(axial.guidance, legacy.guidance);
+  assert.equal(axial.guidance.theta, TRAM_THETA);
+  assert.ok(TRAM_STOPS.some((stop) => stop.y === axial.guidance.y));
 });
