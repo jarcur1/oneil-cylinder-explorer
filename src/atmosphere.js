@@ -187,7 +187,7 @@ export function applyAtmosphere(scene, district, terrain, obstacles) {
   sunLight.shadow.mapSize.width = 2048;
   sunLight.shadow.mapSize.height = 2048;
 
-  // Covers both relocated authored neighborhoods and Meridian's 60 m landmark.
+  // Covers both authored neighborhoods, including Meridian's Civic Tower.
   sunLight.shadow.camera.left = -165;
   sunLight.shadow.camera.right = 165;
   sunLight.shadow.camera.top = 580;

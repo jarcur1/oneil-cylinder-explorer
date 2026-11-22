@@ -35,7 +35,6 @@ export function createCityTower(parent) {
   // SHARED MATERIALS (Ultra-low draw call budget, authored civic palette)
   // =========================================================================
   const facadeMat = createFacadeMaterial("#334148", "#8ed5e3", 12, 18, "tower");
-  const facadeTierMat = createFacadeMaterial("#29353b", "#a1e5f0", 8, 12, "tower");
 
   const stoneWallMat = new THREE.MeshStandardMaterial({
     color: 0x48565e,
@@ -88,10 +87,16 @@ export function createCityTower(parent) {
     roughness: 0.3,
   });
 
-  const spireMat = new THREE.MeshStandardMaterial({
-    color: 0xddeef5,
-    roughness: 0.22,
-    metalness: 0.88,
+  const gateBrassMat = new THREE.MeshStandardMaterial({
+    color: 0xefc382,
+    roughness: 0.55,
+    metalness: 0.28,
+  });
+
+  const gateCapMat = new THREE.MeshStandardMaterial({
+    color: 0x183d40,
+    roughness: 0.55,
+    metalness: 0.45,
   });
 
   const benchWoodMat = new THREE.MeshStandardMaterial({
@@ -446,23 +451,25 @@ export function createCityTower(parent) {
   addCivicSolid(skyroomGroup, railingMat, obstacles, 59.4, 35.0, 0.1, 23.0, 0.9, skyroomFloor);
 
   // =========================================================================
-  // 4. TOWER ROOF, CROWN & SPIRE (Height 47.5 m to 60.0 m)
-  // Stepped silhouette culminating in landmark antenna at exactly 60 m
+  // 4. TOWER ROOF & MERIDIAN GATE CROWN
   // =========================================================================
-  // Skyroom overhanging roof slab (base 47.5 m, height 1.0 m, top 48.5 m)
+  // Retain the Skyroom roof; the gate rises from its top at 48.5 m.
   addCivicSolid(crownGroup, stoneWallMat, obstacles, 48.0, 35.0, 25.2, 25.2, 1.0, skyroomRoofBase);
 
-  // Crown Tier 1 - Stepped lantern base (base 48.5 m, height 4.5 m, top 53.0 m)
-  addCivicSolid(crownGroup, facadeTierMat, obstacles, 48.0, 35.0, 16.0, 16.0, 4.5, 48.5);
+  const gateGroup = new THREE.Group();
+  gateGroup.name = "meridian_gate_crown";
+  crownGroup.add(gateGroup);
 
-  // Crown Tier 2 - Architectural lantern (base 53.0 m, height 3.5 m, top 56.5 m)
-  addCivicSolid(crownGroup, metalFrameMat, obstacles, 48.0, 35.0, 10.0, 10.0, 3.5, 53.0);
+  // Two broad brass pylons leave a 10 m open slot. The taller west pylon
+  // gives the skyline an asymmetric profile, reaching 80 m above the floor.
+  // Recess the joints slightly so curved meshes with different chord
+  // subdivisions cannot leave a visible gap where the solids meet.
+  addCivicSolid(gateGroup, gateBrassMat, obstacles, 40.5, 35.0, 5.0, 14.0, 31.55, 48.45);
+  addCivicSolid(gateGroup, gateBrassMat, obstacles, 55.5, 35.0, 5.0, 14.0, 26.55, 48.45);
 
-  // Landmark Fin & Spire Mast (base 56.5 m, height 3.5 m, top 60.0 m)
-  addCivicSolid(crownGroup, spireMat, obstacles, 48.0, 35.0, 2.0, 2.0, 3.5, 56.5);
-
-  // Spire beacon fin at 60.0 m tip
-  addCivicBlock(crownGroup, liftGlowMat, 48.0, 35.0, 0.6, 0.6, 0.4, 59.8);
+  // A deep petrol cap bridges the rear edges of both pylons. Its U-shaped
+  // plan leaves the slot visible from the opposite wall as well as the ground.
+  addCivicSolid(gateGroup, gateCapMat, obstacles, 50.5, 40.0, 15.0, 4.0, 2.05, 74.95);
 
   // =========================================================================
   // 5. PUBLIC ELEVATED SKYWALK & STREET LIFT

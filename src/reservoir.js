@@ -1,6 +1,6 @@
 import * as THREE from "three";
 import { RADIUS } from "./habitat.js";
-import { addSurfaceBox, addSurfacePatch, addSurfaceSign } from "./surface.js";
+import { addOrientedPanel, addSurfaceBox, addSurfacePatch, addSurfaceSign, surfacePos } from "./surface.js";
 import { addCivicSolid } from "./civic-primitives.js";
 import { RESERVOIR_LAYOUT, reservoirS, reservoirY } from "./reservoir-layout.js";
 import { createWoodland } from "./woodland.js";
@@ -74,7 +74,49 @@ export function createReservoir(parent) {
   }
   addSurfaceSign(root, "STILLWATER RESERVE\nShallow balancing basin: 0.4 m", reservoirS(7), reservoirY(-106), 5, 1.7);
   addSurfaceSign(root, "SHALLOW WATER\n0.4 m over the walking deck", reservoirS(23), reservoirY(-62), 4, 1.5);
-  addSurfaceSign(root, "MERIDIAN LOOKOUT\nAcross the cylinder", reservoirS(-104), reservoirY(-83), 3, 1.7);
+  // The lookout board faces the open north approach and stands on the platform,
+  // behind the walking area at the existing south rail.
+  const guideCanvas = document.createElement("canvas");
+  guideCanvas.width = 1536;
+  guideCanvas.height = 512;
+  const guide = guideCanvas.getContext("2d");
+  guide.fillStyle = "#173d3d";
+  guide.fillRect(0, 0, 1536, 512);
+  guide.strokeStyle = "#c7a66a";
+  guide.lineWidth = 10;
+  guide.strokeRect(18, 18, 1500, 476);
+  guide.fillStyle = "#d6b77b";
+  guide.font = "600 38px system-ui";
+  guide.fillText("STILLWATER  /  MERIDIAN LOOKOUT", 65, 82);
+  guide.fillStyle = "#f4ebd6";
+  guide.font = "700 82px system-ui";
+  guide.fillText("CIVIC TOWER  &  GATE", 65, 190);
+  guide.font = "46px system-ui";
+  guide.fillText("Look for the twin brass towers", 65, 290);
+  guide.fillText("and the ring in the plaza below.", 65, 360);
+  guide.fillStyle = "#d6b77b";
+  guide.font = "600 40px system-ui";
+  guide.fillText("TURN NORTH, THEN LOOK HIGH TO YOUR LEFT", 65, 447);
+  const guideTexture = new THREE.CanvasTexture(guideCanvas);
+  guideTexture.colorSpace = THREE.SRGBColorSpace;
+  guideTexture.anisotropy = 4;
+  const guideS = reservoirS(-100);
+  const guideY = reservoirY(-93.4);
+  const guideBoard = new THREE.Group();
+  guideBoard.name = "meridian_lookout_guide";
+  root.add(guideBoard);
+  addSurfaceBox(guideBoard, metal, guideS, guideY, 6.2, 0.16, 2.1, 1.6);
+  for (const s of [-102.5, -97.5]) {
+    addSurfaceBox(guideBoard, metal, reservoirS(s), guideY, 0.16, 0.16, 1.1, 0.6);
+  }
+  addOrientedPanel(guideBoard, new THREE.MeshBasicMaterial({ map: guideTexture }),
+    surfacePos(guideS / RADIUS, guideY + 0.09, 2.65), "north", 6, 2);
+
+  // Mark the open entrance-path sightline, rather than asking players to
+  // look through the guideway from directly beneath the boarding platform.
+  for (const s of [4, 6.2]) box(metal, s, -101, 0.12, 0.12, 1.4);
+  addSurfaceSign(root, "MERIDIAN VIEW\nLOOK HIGH ABOVE AND LEFT", reservoirS(5.1), reservoirY(-101), 2.8, 1.35)
+    .name = "meridian_arrival_wayfinding";
 
   obstacles.push(...createWoodland(root).obstacles, ...createReservoirPavilion(root).obstacles);
   const light = new THREE.SpotLight(0xffffff, 117000, 620, 0.69, 0.25);

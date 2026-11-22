@@ -64,6 +64,6 @@ export const RESERVOIR_TARGETS = Object.freeze([
   Object.freeze({
     id: "stillwater-lookout", name: "Meridian-facing lookout", kind: "public", layer: "surface",
     theta: reservoirS(-100) / RADIUS, y: reservoirY(-88), height: 0.6, range: 3,
-    hint: "Follow the west woodland path to the stepped lookout. Look up across the open cylinder toward Meridian; the existing neighborhoods are on the opposite interior wall.",
+    hint: "Follow the west woodland path to the stepped lookout. Read the guide, then face north and look high to the left for the Civic Tower's brass crown and the ring in Meridian Plaza.",
   }),
 ]);
