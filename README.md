@@ -102,6 +102,8 @@ Continue north along the promenade from Greenway to Meridian, or choose its entr
 
 Meridian's existing buildings have distinct, static facade treatments: recessed glazing, blinds and curtains, book-lined library windows, and occasional warm room colors. Library exhibitions, exchange notices, and residential entrance displays add street-level identity. Facades use ordinary lit materials; the reading room adds two warm, non-shadow-casting lights, not a day/night cycle.
 
+The Civic Tower's **80 m Meridian Gate** has two brass pylons above the unchanged 42 m Skyroom. From the opposite wall, look for the crown beside the brass ring in Meridian Plaza, the ribbed transit roof, and the stepped garden roof. The crown and roofs are scenery, not new accessible floors.
+
 The plaza armillary's rings turn slowly on simulation time. Existing city visitors look around and check their belongings during stops; one visitor enters the library and sits to read, and the Skywalk observer raises binoculars while viewing the habitat. Mara's interaction anchor is unchanged. Pausing or opening the map freezes resident motion.
 
 ### Public library reading room
@@ -121,6 +123,8 @@ Lifts deliberately use instantaneous travel behind a short fade, not moving cabi
 ## Stillwater Reserve
 
 Ride **Line 02** from **Meridian South**, or choose **Visit Stillwater Reserve (temporary jump)** from the intro or pause menu, to reach the opposite interior wall, across the open cylinder from Meridian. The district has a curved shoreline, raised banks, shallow steps, woodland paths, a public water-management pavilion, and a stepped lookout. Look up across the habitat from the lookout to find the existing neighborhoods.
+
+From the Line 02 pad, take the paved connector east onto the entrance path. Walk north just beyond the guideway and look **high up and left** for the Gate and plaza ring. The west woodland lookout has an identification board and a second clear view: read the board, then turn north and look high to the left.
 
 The woodland mixes broad, irregular oak crowns, pale multi-stem birches, and tiered pines. Seeded groves mix mature trees and saplings with different heights, widths, and foliage colors; shrub thickets, ferns, and patchy leaf litter form the lower layers. Trunks are solid, foliage is walk-through, and the main walking routes remain clear. Geometry is static and instanced rather than spawning separate animated trees.
 

@@ -350,6 +350,21 @@ export function createCityStreets(parent) {
   // Plaza border curbstones
   addSurfacePatch(pavingGroup, mats.curbStone, -21.5, -5, 1.2, 29, 0.062);
   addSurfacePatch(pavingGroup, mats.curbStone, 21.5, -5, 1.2, 29, 0.062);
+  // The brass "meridian" is laid into the plaza, large enough to read from
+  // the opposite hull. Lay the ellipse on the cylinder, not on a flat card.
+  const meridianInlay = new THREE.RingGeometry(0.78, 1, 48);
+  const inlayPositions = meridianInlay.attributes.position;
+  for (let i = 0; i < inlayPositions.count; i++) {
+    const theta = inlayPositions.getX(i) * 20 / RADIUS;
+    const y = -5 + inlayPositions.getY(i) * 13.6;
+    inlayPositions.setXYZ(i, (RADIUS - 0.068) * Math.sin(theta), y,
+      -(RADIUS - 0.068) * Math.cos(theta));
+  }
+  meridianInlay.computeVertexNormals();
+  const meridianRing = new THREE.Mesh(meridianInlay,
+    new THREE.MeshStandardMaterial({ color: 0xd9a75e, roughness: 0.86 }));
+  meridianRing.name = "meridian_plaza_ring";
+  pavingGroup.add(meridianRing);
 
   // --- East Route to Civic Tower Doorway ---
   // East route leaves plaza along y = 5 (s from 5 to 53, width 48, depth 10)
@@ -476,9 +491,15 @@ export function createCityStreets(parent) {
     6.6,
     31.4,
   );
-  // Rooftop aeroponic garden pergola
-  addCivicBlock(hNorthGroup, mats.tealMetal, -44, 65, 14, 16, 3.2, 38.0);
-  addCivicBlock(hNorthGroup, mats.limestone, -44, 65, 14.4, 16.4, 0.4, 41.2);
+  // Layered planted terraces keep the residential roof low and quiet.
+  const housingRoof = new THREE.Group();
+  housingRoof.name = "meridian_housing_roof";
+  hNorthGroup.add(housingRoof);
+  addCivicSolid(housingRoof, mats.limestone, obstacles, -44, 65, 20, 24, 0.45, 38);
+  addCivicSolid(housingRoof, mats.turf, obstacles, -44, 65, 17.8, 21.8, 0.35, 38.45);
+  addCivicSolid(housingRoof, mats.limestone, obstacles, -44, 65, 12.8, 15.8, 0.7, 38.8);
+  addCivicSolid(housingRoof, mats.turf, obstacles, -44, 65, 11.2, 14.2, 0.3, 39.5);
+  addCivicSolid(housingRoof, mats.tealMetal, obstacles, -44, 65, 5.5, 7.5, 0.45, 39.8);
   // Ground entrance canopy facing east (s = -31)
   addCivicBlock(hNorthGroup, mats.tealMetal, -29.8, 65, 2.4, 8.0, 0.35, 3.6);
   obstacles.push({
@@ -549,11 +570,16 @@ export function createCityStreets(parent) {
   addCivicBlock(transitGroup, mats.tealMetal, 58, 98, 28.5, 26.5, 1.0, 34.6);
   // Stepped setback tower (reaches 44 m)
   addCivicBlock(transitGroup, mats.transitFacade, 58, 98, 20, 18, 8.4, 35.6);
-  // Roof mechanical plant room
-  addCivicBlock(transitGroup, mats.concretePlinth, 58, 98, 12, 10, 3.2, 44.0);
-  // Communications mast & spire (landmark reaches ~55.7 m, below 60 m tower)
-  addCivicBlock(transitGroup, mats.tealMetal, 58, 98, 3.0, 3.0, 4.0, 47.2);
-  addSurfaceBox(transitGroup, mats.bronzeMetal, 58, 98, 0.6, 0.6, 4.5, 51.2);
+  // A long, banded train-hall crown rather than a competing vertical spire.
+  const transitRoof = new THREE.Group();
+  transitRoof.name = "meridian_transit_roof";
+  transitGroup.add(transitRoof);
+  addCivicSolid(transitRoof, mats.tealMetal, obstacles, 58, 98, 19.6, 17.8, 0.8, 44);
+  addCivicSolid(transitRoof, mats.tealMetal, obstacles, 58, 98, 14.4, 17.8, 0.8, 44.8);
+  addCivicSolid(transitRoof, mats.tealMetal, obstacles, 58, 98, 9.2, 17.8, 0.8, 45.6);
+  for (const y of [91, 94.5, 98, 101.5, 105]) {
+    addCivicSolid(transitRoof, mats.limestone, obstacles, 58, y, 19.8, 0.65, 2.8, 44);
+  }
   // West concourse entrance canopy (facing plaza at s = 44)
   addCivicBlock(transitGroup, mats.tealMetal, 42.6, 98, 3.0, 14.0, 0.4, 4.4);
   obstacles.push({
