@@ -98,11 +98,13 @@ Reloading an isolated or replaced job starts with emergency lighting already app
 
 ## Meridian Civic District
 
-Continue north along the promenade from Greenway to Meridian, or choose its entrance in the intro/pause menu. Seven authored surrounding buildings frame a plaza, side streets, planted avenues, and the taller civic tower. The library reading room and civic tower are public; the remaining buildings are exterior-only, with no collectible entrance passes.
+Continue north along the promenade from Greenway, or choose Meridian's entrance in the intro or pause menu. The district's public routes connect the Compass Court, library reading room, Civic Tower, and Skywalk. Other buildings are exterior-only.
 
 Meridian's existing buildings have distinct, static facade treatments: recessed glazing, blinds and curtains, book-lined library windows, and occasional warm room colors. Library exhibitions, exchange notices, and residential entrance displays add street-level identity. Facades use ordinary lit materials; the reading room adds two warm, non-shadow-casting lights, not a day/night cycle.
 
 The Civic Tower's **80 m Meridian Gate** has two brass pylons above the unchanged 42 m Skyroom. From the opposite wall, look for the crown beside the brass ring in Meridian Plaza, the ribbed transit roof, and the stepped garden roof. The crown and roofs are scenery, not new accessible floors.
+
+Two high-rises mark the south and east sides of the district: **Lantern Court** (103 m), with planted residential setbacks and pale balcony bands, and the **Meridian Exchange** (116 m), with offset volumes and metal fins. **Compass Court** uses a brass ring, dark stone and compass bearings to frame the turning armillary, with flush paving across the existing promenade.
 
 The plaza armillary's rings turn slowly on simulation time. Existing city visitors look around and check their belongings during stops; one visitor enters the library and sits to read, and the Skywalk observer raises binoculars while viewing the habitat. Mara's interaction anchor is unchanged. Pausing or opening the map freezes resident motion.
 

@@ -3,6 +3,7 @@ import { RADIUS } from "./habitat.js";
 import { addCivicBlock, addCivicSolid, createFacadeMaterial } from "./civic-primitives.js";
 import { createLibrary } from "./library.js";
 import { LIBRARY_LAYOUT } from "./library-layout.js";
+import { addMeridianPlaza } from "./meridian-plaza.js";
 import {
   setSurfaceMatrix,
   addSurfaceBox,
@@ -119,6 +120,7 @@ export function createCityStreets(parent) {
     transitFacade: createFacadeMaterial("#ece7dd", "#1e525a", 9, 12, "transit"),
     housingSouthFacade: createFacadeMaterial("#cfbeaa", "#2a4c48", 7, 7, "residential"),
     housingEastFacade: createFacadeMaterial("#c8beae", "#284b4f", 7, 8, "residential"),
+    lanternFacade: createFacadeMaterial("#234347", "#a3c5c1", 7, 8, "residential"),
     commercialFacade: createFacadeMaterial("#b9a891", "#1f3a3c", 7, 8, "exchange"),
     workshopFacade: createFacadeMaterial("#9c988e", "#2f484e", 6, 5, "workshop"),
 
@@ -341,36 +343,13 @@ export function createCityStreets(parent) {
   addSurfacePatch(pavingGroup, mats.turf, 14.0, -50, 12, 56, 0.035);
 
   // --- Central Civic Plaza centered at s = 0, y = -5 ---
-  // Broad plaza stone terrace covering s[-22, 22], y[-20, 10]
-  addSurfacePatch(pavingGroup, mats.plazaPaving, 0, -5, 44, 30, 0.05);
-  // Concentric geometric dark slate inlay
-  addSurfacePatch(pavingGroup, mats.plazaInlay, 0, -5, 24, 20, 0.056);
-  // Formal promenade line running straight through s[-5, 5]
-  addSurfacePatch(pavingGroup, mats.promenadePaving, 0, -5, 10, 30, 0.06);
-  // Plaza border curbstones
-  addSurfacePatch(pavingGroup, mats.curbStone, -21.5, -5, 1.2, 29, 0.062);
-  addSurfacePatch(pavingGroup, mats.curbStone, 21.5, -5, 1.2, 29, 0.062);
-  // The brass "meridian" is laid into the plaza, large enough to read from
-  // the opposite hull. Lay the ellipse on the cylinder, not on a flat card.
-  const meridianInlay = new THREE.RingGeometry(0.78, 1, 48);
-  const inlayPositions = meridianInlay.attributes.position;
-  for (let i = 0; i < inlayPositions.count; i++) {
-    const theta = inlayPositions.getX(i) * 20 / RADIUS;
-    const y = -5 + inlayPositions.getY(i) * 13.6;
-    inlayPositions.setXYZ(i, (RADIUS - 0.068) * Math.sin(theta), y,
-      -(RADIUS - 0.068) * Math.cos(theta));
-  }
-  meridianInlay.computeVertexNormals();
-  const meridianRing = new THREE.Mesh(meridianInlay,
-    new THREE.MeshStandardMaterial({ color: 0xd9a75e, roughness: 0.86 }));
-  meridianRing.name = "meridian_plaza_ring";
-  pavingGroup.add(meridianRing);
+  addMeridianPlaza(pavingGroup);
 
   // --- East Route to Civic Tower Doorway ---
-  // East route leaves plaza along y = 5 (s from 5 to 53, width 48, depth 10)
-  addSurfacePatch(pavingGroup, mats.streetPaving, 29, 5, 48, 10, 0.048);
-  addSurfacePatch(pavingGroup, mats.curbStone, 29, 0.5, 48, 1.2, 0.055);
-  addSurfacePatch(pavingGroup, mats.curbStone, 29, 9.5, 48, 1.2, 0.055);
+  // East route begins at the compass court's edge (s = 22).
+  addSurfacePatch(pavingGroup, mats.streetPaving, 37.5, 5, 31, 10, 0.048);
+  addSurfacePatch(pavingGroup, mats.curbStone, 37.5, 0.5, 31, 1.2, 0.055);
+  addSurfacePatch(pavingGroup, mats.curbStone, 37.5, 9.5, 31, 1.2, 0.055);
   // Turn north along s = 48 from y = 5 to y = 14.8 (meeting south border of tower parcel at y = 15)
   addSurfacePatch(pavingGroup, mats.streetPaving, 48, 10, 10, 10, 0.05);
   addSurfacePatch(pavingGroup, mats.curbStone, 43.5, 10, 1.2, 10, 0.055);
@@ -683,16 +662,45 @@ export function createCityStreets(parent) {
   });
 
   // ------------------------------------------
-  // 5. East South Housing: s = 48, y = -49, w = 22, d = 24, h = 24
+  // 5. Lantern Court: terraced residential tower on the existing housing parcel
   // ------------------------------------------
   const hEastGroup = new THREE.Group();
   hEastGroup.name = "bldgHousingEast";
   buildingsGroup.add(hEastGroup);
   addCivicBlock(hEastGroup, mats.concretePlinth, 48, -49, 22.5, 24.5, 0.5, 0);
   addCivicBlock(hEastGroup, mats.housingEastFacade, 48, -49, 22, 24, 18.5, 0.5);
-  addCivicBlock(hEastGroup, mats.limestone, 48, -49, 22.4, 24.4, 0.6, 19.0);
-  addCivicBlock(hEastGroup, mats.housingEastFacade, 48, -49, 16, 18, 4.4, 19.6);
-  addCivicBlock(hEastGroup, mats.tealMetal, 48, -49, 14, 16, 1.0, 24.0);
+  const lanternCourt = new THREE.Group();
+  lanternCourt.name = "meridian_lantern_court";
+  hEastGroup.add(lanternCourt);
+  // Each setback has its own curved solid and matching vertical collision bounds.
+  addCivicSolid(lanternCourt, mats.limestone, obstacles, 48, -49, 22, 24, 0.6, 19);
+  addCivicSolid(lanternCourt, mats.lanternFacade, obstacles, 48, -49, 21, 23, 20.4, 19.6);
+  addCivicSolid(lanternCourt, mats.limestone, obstacles, 48, -49, 21, 23, 0.7, 40);
+  addCivicSolid(lanternCourt, mats.lanternFacade, obstacles, 46.5, -50, 18, 20, 19.3, 40.7);
+  addCivicSolid(lanternCourt, mats.limestone, obstacles, 46.5, -50, 18, 20, 0.7, 60);
+  addCivicSolid(lanternCourt, mats.lanternFacade, obstacles, 48, -51, 15, 17, 18.3, 60.7);
+  addCivicSolid(lanternCourt, mats.limestone, obstacles, 48, -51, 15, 17, 0.7, 79);
+  addCivicSolid(lanternCourt, mats.lanternFacade, obstacles, 46.5, -49.5, 12, 14, 18.3, 79.7);
+  addCivicSolid(lanternCourt, mats.limestone, obstacles, 46.5, -49.5, 12, 14, 0.8, 98);
+  addCivicSolid(lanternCourt, mats.canopyGlass, obstacles, 46.5, -49.5, 8, 9, 3.2, 98.8);
+  addCivicSolid(lanternCourt, mats.limestone, obstacles, 46.5, -49.5, 8.8, 9.8, 0.8, 102).name = "lanternCourtCrown";
+  // Pale balcony slabs mark occupied floors rather than a single glass shaft.
+  for (const [s, y, width, depth, base] of [
+    [48, -49, 21.4, 23.4, 26], [48, -49, 21.4, 23.4, 33],
+    [46.5, -50, 18.4, 20.4, 47], [46.5, -50, 18.4, 20.4, 54],
+    [48, -51, 15.4, 17.4, 67], [48, -51, 15.4, 17.4, 73],
+    [46.5, -49.5, 12.4, 14.4, 86], [46.5, -49.5, 12.4, 14.4, 92],
+  ]) {
+    addCivicBlock(lanternCourt, mats.limestone, s, y, width, depth, 0.35, base);
+  }
+  // Off-centre planted pockets make the setbacks legible from overhead.
+  for (const [s, y, width, depth, base] of [
+    [56.8, -49, 2, 17, 40.7], [46, -38.5, 14, 1.5, 40.7],
+    [40, -50, 2, 15, 60.7], [48, -59, 10, 1.5, 60.7],
+    [53.5, -51, 2, 11, 79.7], [46, -58.5, 8, 1.5, 79.7],
+  ]) {
+    addCivicBlock(lanternCourt, mats.turf, s, y, width, depth, 0.25, base);
+  }
   addCivicBlock(hEastGroup, mats.tealMetal, 35.8, -49, 2.4, 7.0, 0.35, 3.4);
   obstacles.push({
     theta: 35.8 / RADIUS,
@@ -702,9 +710,14 @@ export function createCityStreets(parent) {
     height: 0.35,
     base: 3.4,
   });
+  // A stone portal frames the closed residential display under the canopy.
+  for (const y of [-51.65, -46.35]) {
+    addCivicBlock(hEastGroup, mats.limestone, 37, y, 0.22, 0.28, 3.4);
+  }
+  addCivicBlock(hEastGroup, mats.limestone, 37, -49, 0.22, 5.6, 0.22, 3.18);
   addSurfaceSign(
     hEastGroup,
-    "HABITAT STAFF RESIDENCES\nRESTRICTED ACCESS · KEYCARD ONLY",
+    "LANTERN COURT\nHABITAT STAFF RESIDENCES",
     35.5,
     -49,
     4.4,
@@ -715,21 +728,53 @@ export function createCityStreets(parent) {
     y: -49,
     width: 22,
     depth: 24,
-    height: 24,
+    height: 19,
     base: 0,
   });
 
   // ------------------------------------------
-  // 6. East Outer Commercial: s = 94, y = -7, w = 22, d = 28, h = 26
+  // 6. Meridian Exchange: offset commercial volumes on the existing parcel
   // ------------------------------------------
   const commGroup = new THREE.Group();
   commGroup.name = "bldgCommercial";
   buildingsGroup.add(commGroup);
   addCivicBlock(commGroup, mats.concretePlinth, 94, -7, 22.5, 28.5, 0.5, 0);
   addCivicBlock(commGroup, mats.commercialFacade, 94, -7, 22, 28, 20.5, 0.5);
-  addCivicBlock(commGroup, mats.limestone, 94, -7, 22.4, 28.4, 0.6, 21.0);
-  addCivicBlock(commGroup, mats.commercialFacade, 94, -7, 16, 20, 4.4, 21.6);
-  addCivicBlock(commGroup, mats.tealMetal, 94, -7, 14, 16, 1.4, 26.0);
+  const exchangeTower = new THREE.Group();
+  exchangeTower.name = "meridian_exchange_tower";
+  commGroup.add(exchangeTower);
+  addCivicSolid(exchangeTower, mats.limestone, obstacles, 94, -7, 22, 28, 0.6, 21);
+  addCivicSolid(exchangeTower, mats.commercialFacade, obstacles, 94, -7, 22, 28, 23.4, 21.6);
+  addCivicSolid(exchangeTower, mats.limestone, obstacles, 94, -7, 22, 28, 0.8, 45);
+  addCivicSolid(exchangeTower, mats.commercialFacade, obstacles, 92.5, -9, 19, 24, 23.2, 45.8);
+  addCivicSolid(exchangeTower, mats.limestone, obstacles, 92.5, -9, 19, 24, 0.8, 69);
+  addCivicSolid(exchangeTower, mats.commercialFacade, obstacles, 95, -5, 18, 22, 23.2, 69.8);
+  addCivicSolid(exchangeTower, mats.limestone, obstacles, 95, -5, 18, 22, 0.8, 93);
+  addCivicSolid(exchangeTower, mats.tealMetal, obstacles, 93.5, -7, 15, 18, 18.2, 93.8);
+  addCivicSolid(exchangeTower, mats.limestone, obstacles, 93.5, -7, 16, 19, 1, 112);
+  addCivicSolid(exchangeTower, mats.brassAccent, obstacles, 93.5, -7, 10, 13, 2, 113);
+  addCivicSolid(exchangeTower, mats.tealMetal, obstacles, 93.5, -7, 12, 15, 1, 115).name = "exchangeTowerCap";
+  // Repeated vertical fins share geometry and draw calls.
+  const finGeometry = new THREE.BoxGeometry(1, 1, 1);
+  const finMatrix = new THREE.Matrix4();
+  const lowerFinRows = [-18, -12, -6, 0, 4];
+  const upperFinRows = [-18, -12, -6, 0];
+  for (const [material, lowerS, upperS] of [
+    [mats.brassAccent, 83.1, 101.9],
+    [mats.limestone, 104.9, 83.1],
+  ]) {
+    const fins = new THREE.InstancedMesh(finGeometry, material, lowerFinRows.length + upperFinRows.length);
+    let index = 0;
+    for (const y of lowerFinRows) {
+      setSurfaceMatrix(finMatrix, lowerS / RADIUS, y, 22, 0.5, 0.65, 23);
+      fins.setMatrixAt(index++, finMatrix);
+    }
+    for (const y of upperFinRows) {
+      setSurfaceMatrix(finMatrix, upperS / RADIUS, y, 46, 0.5, 0.65, 23);
+      fins.setMatrixAt(index++, finMatrix);
+    }
+    exchangeTower.add(fins);
+  }
   addCivicBlock(commGroup, mats.tealMetal, 81.8, -7, 2.4, 8.0, 0.35, 3.5);
   obstacles.push({
     theta: 81.8 / RADIUS,
@@ -739,6 +784,13 @@ export function createCityStreets(parent) {
     height: 0.35,
     base: 3.5,
   });
+  // The Exchange has a recessed-looking bronze entrance between its two
+  // street displays. The solid podium behind it remains closed.
+  addCivicBlock(commGroup, mats.tealMetal, 83, -7, 0.24, 3.4, 3.35);
+  for (const y of [-8.65, -7, -5.35]) {
+    addCivicBlock(commGroup, mats.brassAccent, 82.85, y, 0.13, 0.13, 3.35);
+  }
+  addCivicBlock(commGroup, mats.brassAccent, 82.82, -7, 0.15, 3.4, 0.13, 2.45);
   addSurfaceSign(
     commGroup,
     "MERIDIAN COMMERCIAL EXCHANGE\nTRADING FLOOR · BADGE REQUIRED",
@@ -752,7 +804,7 @@ export function createCityStreets(parent) {
     y: -7,
     width: 22,
     depth: 28,
-    height: 26,
+    height: 21,
     base: 0,
   });
 
