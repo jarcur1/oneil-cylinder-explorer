@@ -8,7 +8,7 @@ import { TOWER, SKYWALK_HEIGHT } from "./city-layout.js";
 import { CITY_LIFT_STOPS } from "./city-transit.js";
 import { AXIAL_HEIGHT, ENDCAP_HUBS, getAxialHub } from "./sunline-layout.js";
 import { SUNLINE_TRANSFERS } from "./sunline-transit.js";
-import { TRAM_THETA, TRAM_HEIGHT, TRAM_STOPS } from "./tram-layout.js";
+import { TRAM_THETA, TRAM_HEIGHT, TRAM_STOPS, TRAM_LINES, AXIAL_TRAM_LINE, STILLWATER_TRAM_LINE } from "./tram-layout.js";
 import { LIBRARY_TARGET } from "./library-layout.js";
 import { RESERVOIR_TARGETS } from "./reservoir-layout.js";
 
@@ -111,7 +111,7 @@ const sunlineAccessTargets = SUNLINE_TRANSFERS.filter(
   });
 });
 
-const tramAccessTargets = TRAM_STOPS.map((stop) => {
+const tramAccessTargets = TRAM_LINES.flatMap((line) => line.stops).map((stop) => {
   TARGET_RANGE_BY_ID.set(stop.id, stop.range ?? 3.2);
   return Object.freeze({
     id: stop.id,
@@ -189,29 +189,48 @@ const trolleyEndpoints = SUNLINE_TRANSFERS.filter(
   (stop) => stop.mode === "trolley",
 ).sort((a, b) => a.y - b.y);
 
-const TRAM_DISEMBARK_GUIDANCE = Object.freeze(
-  TRAM_STOPS.map((stop) =>
-    Object.freeze({
-      theta: TRAM_THETA,
-      y: stop.y,
-      height: TRAM_HEIGHT,
-      layer: getNavigationLayer(TRAM_HEIGHT),
-      name: `Disembark at ${stop.name}`,
-      kind: "tram",
-    }),
-  ),
-);
+const TRAM_GUIDANCE_BY_LINE = new Map(TRAM_LINES.map((line) => {
+  const guidance = line.stops.map((stop) => Object.freeze({
+    theta: line.axis === "theta" ? stop.trackTheta : TRAM_THETA,
+    y: line.axis === "theta" ? line.fixed : stop.y,
+    height: TRAM_HEIGHT,
+    layer: getNavigationLayer(TRAM_HEIGHT),
+    name: `Disembark at ${stop.name}`,
+    kind: "tram",
+  }));
+  const byTarget = new Map();
+  line.stops.forEach((stop, index) => {
+    byTarget.set(stop.id, guidance[index]);
+    for (const id of stop.landmarkIds ?? []) byTarget.set(id, guidance[index]);
+  });
+  return [line.id, { guidance, byTarget }];
+}));
 
-const TRAM_DISEMBARK_BY_TARGET_ID = new Map();
-TRAM_STOPS.forEach((stop, index) => {
-  const guidance = TRAM_DISEMBARK_GUIDANCE[index];
-  TRAM_DISEMBARK_BY_TARGET_ID.set(stop.id, guidance);
-  if (Array.isArray(stop.landmarkIds)) {
-    for (const landmarkId of stop.landmarkIds) {
-      TRAM_DISEMBARK_BY_TARGET_ID.set(landmarkId, guidance);
-    }
+const plantingTramStops = new Map(tramAccessTargets.map((stop) => [stop.id, stop]));
+const glasshousePad = plantingTramStops.get("tram-glasshouse");
+const plazaPad = plantingTramStops.get("tram-plaza");
+const meridianSouthPad = plantingTramStops.get("tram-meridian-south");
+const stillwaterPad = plantingTramStops.get("tram-stillwater");
+const transferMidpoint = (plazaPad.y + glasshousePad.y) / 2;
+
+// Pick the next boarding pad on foot and the correct exit on the active line.
+// No visit history: walking and menu arrivals can join the route at any point.
+function resolvePlantingTram(playerState, leg) {
+  if (playerState.traversalMode === "tram") {
+    const line = playerState.rideLineId ?? AXIAL_TRAM_LINE.id;
+    const stop = line === STILLWATER_TRAM_LINE.id
+      ? (leg === "carrying" ? stillwaterPad : meridianSouthPad)
+      : (leg === "carrying" ? plazaPad : glasshousePad);
+    return TRAM_GUIDANCE_BY_LINE.get(line)?.byTarget.get(stop.id);
   }
-});
+  const onReserveSide = Math.cos(playerState.theta) < 0;
+  if (leg === "carrying") {
+    if (onReserveSide) return null;
+    return playerState.y < transferMidpoint ? glasshousePad : meridianSouthPad;
+  }
+  if (onReserveSide) return stillwaterPad;
+  return playerState.y >= transferMidpoint ? plazaPad : null;
+}
 
 const sortedTramStops = [...TRAM_STOPS].sort((a, b) => a.y - b.y);
 
@@ -264,6 +283,13 @@ export const NAV_CONNECTIONS = Object.freeze([
         }),
       ]
     : []),
+  Object.freeze({
+    id: STILLWATER_TRAM_LINE.linkId,
+    type: "tram",
+    label: `Stillwater tramway (${STILLWATER_TRAM_LINE.stops[0].name} ↔ ${STILLWATER_TRAM_LINE.stops[STILLWATER_TRAM_LINE.stops.length - 1].name})`,
+    from: makeConnectionPose({ theta: STILLWATER_TRAM_LINE.stops[0].trackTheta, y: STILLWATER_TRAM_LINE.fixed, height: TRAM_HEIGHT }),
+    to: makeConnectionPose({ theta: STILLWATER_TRAM_LINE.stops[STILLWATER_TRAM_LINE.stops.length - 1].trackTheta, y: STILLWATER_TRAM_LINE.fixed, height: TRAM_HEIGHT }),
+  }),
 ]);
 
 function pickNearestStop(playerState, target, stops) {
@@ -331,16 +357,18 @@ function getSurfaceApproachTarget(target) {
 }
 
 function pickTramDisembark(playerState, target) {
+  const { guidance, byTarget } = TRAM_GUIDANCE_BY_LINE.get(playerState.rideLineId) ??
+    TRAM_GUIDANCE_BY_LINE.get(AXIAL_TRAM_LINE.id);
   const accessTarget = getSurfaceApproachTarget(target);
   const associated =
-    (target.id && TRAM_DISEMBARK_BY_TARGET_ID.get(target.id)) ||
-    (accessTarget.id && TRAM_DISEMBARK_BY_TARGET_ID.get(accessTarget.id));
+    (target.id && byTarget.get(target.id)) ||
+    (accessTarget.id && byTarget.get(accessTarget.id));
   if (associated) return associated;
 
-  let best = TRAM_DISEMBARK_GUIDANCE[0];
+  let best = guidance[0];
   let bestTargetDist = Infinity;
   let bestPlayerDist = Infinity;
-  for (const stop of TRAM_DISEMBARK_GUIDANCE) {
+  for (const stop of guidance) {
     const td = spatialDistance(
       accessTarget.theta,
       accessTarget.y,
@@ -370,8 +398,10 @@ function pickTramDisembark(playerState, target) {
 }
 
 function resolveGuidance(playerState, target) {
+  const plantingLeg = target.plantingLeg;
   if (playerState.traversalMode === "tram") {
-    return pickTramDisembark(playerState, target);
+    return (plantingLeg && resolvePlantingTram(playerState, plantingLeg)) ??
+      pickTramDisembark(playerState, target);
   }
   const playerLayer = getNavigationLayer(playerState.height);
   const targetLayer = target.layer;
@@ -432,7 +462,7 @@ function resolveGuidance(playerState, target) {
   if (targetOnSkywalk) {
     return SKYWALK_LIFT_UP;
   }
-  return target;
+  return (plantingLeg && resolvePlantingTram(playerState, plantingLeg)) || target;
 }
 
 function resolveJobTarget(jobId, jobViews, scratch) {
@@ -468,6 +498,7 @@ function resolveJobTarget(jobId, jobViews, scratch) {
   scratch.height = height;
   scratch.layer = getNavigationLayer(height);
   scratch.kind = "job";
+  scratch.plantingLeg = jobId === "delivery" && view.id === "planting" ? view.phase : null;
   scratch.range = Number.isFinite(raw.range)
     ? raw.range
     : jobId === "delivery"

@@ -959,7 +959,7 @@ test("native production app supports E boarding, short next-stop trip, free look
       await expect(page.locator("#habitat-map")).toBeVisible();
       // SVG vertical strokes have zero-width boxes, so Playwright visibility
       // is not a valid paint check for this line.
-      const routePaint = await page.locator("#habitat-map-svg .map-link-tram").evaluate((line) => {
+      const routePaint = await page.locator('#habitat-map-svg .map-link-tram[data-tram-line="line-01"]').evaluate((line) => {
         const style = getComputedStyle(line);
         let visibleAncestors = true;
         for (let node = line; node; node = node.parentElement) {
@@ -982,7 +982,7 @@ test("native production app supports E boarding, short next-stop trip, free look
       expect(routePaint.strokeOpacity).toBeGreaterThan(0);
       expect(routePaint.spanRatio).toBeGreaterThan(0.4);
       await expect(
-        page.locator("#habitat-map-svg [data-tram-marker]"),
+        page.locator('#habitat-map-svg [data-tram-marker][data-tram-line="line-01"]'),
       ).toBeVisible();
       for (const stop of TRAM_STOPS) {
         await expect(
@@ -1205,7 +1205,7 @@ test("native production app supports E boarding, short next-stop trip, free look
         "carrying",
       );
 
-      const tramMarker = page.locator("#habitat-map-svg [data-tram-marker]");
+      const tramMarker = page.locator('#habitat-map-svg [data-tram-marker][data-tram-line="line-01"]');
       await expect(tramMarker).toBeVisible();
       const markerBoxBefore = await tramMarker.boundingBox();
       const posWhileFrozen = await readLongM();

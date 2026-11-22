@@ -22,6 +22,7 @@ const KNOWN_SCHEMA_KEYS = new Set([
   "discoveries",
   "deliveryPhase",
   "supplyPhase",
+  "plantingPhase",
   "maintenancePhase",
   "sunlinePhase",
   "muted",
@@ -34,6 +35,7 @@ const KNOWN_SCHEMA_KEYS = new Set([
  *   discoveries: string[],
  *   deliveryPhase: "available",
  *   supplyPhase: "available",
+ *   plantingPhase: "available",
  *   maintenancePhase: "available",
  *   sunlinePhase: "available",
  *   muted: false,
@@ -44,6 +46,7 @@ function createDefaultState() {
     discoveries: [],
     deliveryPhase: "available",
     supplyPhase: "available",
+    plantingPhase: "available",
     maintenancePhase: "available",
     sunlinePhase: "available",
     muted: false,
@@ -59,6 +62,7 @@ function createDefaultState() {
  *     discoveries: string[],
  *     deliveryPhase: "available" | "carrying" | "complete",
  *     supplyPhase: "available" | "carrying" | "complete",
+ *     plantingPhase: "available" | "carrying" | "complete",
  *     maintenancePhase: "available" | "assigned" | "repaired" | "complete",
  *     sunlinePhase: "available" | "isolated" | "replaced" | "complete",
  *     muted: boolean,
@@ -111,6 +115,7 @@ export function createSaveStore(storageProvider = () => window.localStorage) {
    *   discoveries: string[],
    *   deliveryPhase: "available" | "carrying" | "complete",
    *   supplyPhase: "available" | "carrying" | "complete",
+   *   plantingPhase: "available" | "carrying" | "complete",
  *   maintenancePhase: "available" | "assigned" | "repaired" | "complete",
  *   sunlinePhase: "available" | "isolated" | "replaced" | "complete",
  *   muted: boolean,
@@ -217,6 +222,20 @@ export function createSaveStore(storageProvider = () => window.localStorage) {
       needsRecovery = true;
     }
 
+    // Additive v1 field, unlocked only after the normalized produce run completes.
+    let plantingPhase = "available";
+    if (parsed.plantingPhase !== undefined) {
+      if (VALID_DELIVERY_PHASES.has(parsed.plantingPhase)) {
+        plantingPhase = parsed.plantingPhase;
+      } else {
+        needsRecovery = true;
+      }
+    }
+    if (supplyPhase !== "complete" && plantingPhase !== "available") {
+      plantingPhase = "available";
+      needsRecovery = true;
+    }
+
     // Maintenance phase normalization
     let maintenancePhase = "available";
     if (VALID_MAINTENANCE_PHASES.has(parsed.maintenancePhase)) {
@@ -259,6 +278,7 @@ export function createSaveStore(storageProvider = () => window.localStorage) {
       discoveries,
       deliveryPhase,
       supplyPhase,
+      plantingPhase,
       maintenancePhase,
       sunlinePhase,
       muted,
@@ -298,6 +318,11 @@ export function createSaveStore(storageProvider = () => window.localStorage) {
         ? state.supplyPhase
         : "available";
 
+    const plantingPhase =
+      supplyPhase === "complete" && VALID_DELIVERY_PHASES.has(state?.plantingPhase)
+        ? state.plantingPhase
+        : "available";
+
     const maintenancePhase = VALID_MAINTENANCE_PHASES.has(
       state?.maintenancePhase,
     )
@@ -315,6 +340,7 @@ export function createSaveStore(storageProvider = () => window.localStorage) {
       discoveries,
       deliveryPhase,
       supplyPhase,
+      plantingPhase,
       maintenancePhase,
       sunlinePhase,
       muted,

@@ -1103,6 +1103,10 @@ dialog.habitat-map::backdrop {
   color: #d5f58e;
   font-weight: 600;
 }
+#habitat-map-tram-status:not(:empty) {
+  display: grid;
+  gap: 6px;
+}
 .habitat-map-tram-status {
   display: flex;
   flex-wrap: wrap;

@@ -1,7 +1,7 @@
 import test from "node:test";
 import assert from "node:assert/strict";
 import { RADIUS } from "../src/habitat.js";
-import { TRAM_STOPS } from "../src/tram-layout.js";
+import { TRAM_STOPS, STILLWATER_TRAM_LINE, STILLWATER_TRAM_STOPS } from "../src/tram-layout.js";
 import { createTramState } from "../src/tram-state.js";
 
 function atStop(stop, overrides = {}) {
@@ -472,4 +472,96 @@ test("forecast reads do not advance service and preserve closing, commit, wrap a
   for (const stop of TRAM_STOPS) {
     assert.deepEqual(later.getStopStatus(stop.id, {}), atForty.getStopStatus(stop.id, {}));
   }
+});
+
+test("docked trams only offer and commit exits for their own riders", () => {
+  const lines = [
+    { tram: createTramState(), id: "line-01", stationId: TRAM_STOPS[0].id },
+    { tram: createTramState(STILLWATER_TRAM_LINE), id: "line-02", stationId: STILLWATER_TRAM_STOPS[0].id },
+  ];
+  for (const line of lines) {
+    for (const riderLine of lines) {
+      const rider = aboard({ rideLineId: riderLine.id });
+      const matches = line.id === riderLine.id;
+      assert.equal(line.tram.getInteraction(rider)?.kind ?? null, matches ? "exit" : null);
+      assert.equal(line.tram.canCommitTransfer("exit", line.stationId, rider), matches);
+    }
+    for (const rider of [aboard(), aboard({ rideLineId: null })]) {
+      assert.equal(line.tram.getInteraction(rider)?.kind, "exit");
+      assert.equal(line.tram.canCommitTransfer("exit", line.stationId, rider), true);
+    }
+  }
+});
+
+test("Line 02 travels the elevated physical arc east and west between its endpoints", () => {
+  const tram = createTramState(STILLWATER_TRAM_LINE);
+  const [start, end] = STILLWATER_TRAM_STOPS;
+  const leg = (end.trackTheta - start.trackTheta) * (RADIUS - 13) / 28;
+  const pose = {};
+  assert.deepEqual(tram.getPose(pose), { theta: start.trackTheta, y: 340, height: 13, speed: 0 });
+  assert.equal(tram.getState({}).stationId, start.id);
+  tram.update(20 + leg / 2);
+  let state = tram.getState({});
+  assert.ok(Math.abs(state.theta - (start.trackTheta + end.trackTheta) / 2) < 1e-12);
+  assert.equal(state.y, 340);
+  assert.equal(state.height, 13);
+  assert.equal(state.speed, 28);
+  assert.equal(state.direction, 1);
+  tram.update(leg / 2 + 1e-8);
+  state = tram.getState({});
+  assert.equal(state.phase, "dwell");
+  assert.equal(state.theta, end.trackTheta);
+  assert.equal(state.stationId, end.id);
+  assert.equal(state.direction, -1);
+  tram.update(20 + leg / 2);
+  state = tram.getState({});
+  assert.ok(Math.abs(state.theta - (start.trackTheta + end.trackTheta) / 2) < 1e-8);
+  assert.equal(state.y, 340);
+  assert.equal(state.height, 13);
+  assert.equal(state.speed, 28);
+  assert.equal(state.direction, -1);
+  tram.update(leg / 2);
+  state = tram.getState({});
+  assert.equal(state.phase, "dwell");
+  assert.equal(state.theta, start.trackTheta);
+  assert.equal(state.stationId, start.id);
+});
+
+test("Line 02 forecasts, transfer windows, and independent state clocks", () => {
+  const tram = createTramState(STILLWATER_TRAM_LINE);
+  const other = createTramState(STILLWATER_TRAM_LINE);
+  const [start, end] = STILLWATER_TRAM_STOPS;
+  const leg = (end.trackTheta - start.trackTheta) * (RADIUS - 13) / 28;
+  const forecast = tram.getStopStatus(end.id, {});
+  assert.ok(Math.abs(forecast.arrivalIn - (20 + leg)) < 1e-10);
+  assert.equal(forecast.direction, -1);
+  assert.equal(forecast.destinationStationId, start.id);
+  assert.equal(tram.getStopStatus(TRAM_STOPS[0].id, {}), null);
+  const inspect = tram.getInteraction(atStop(end));
+  assert.equal(inspect.kind, "inspect");
+  assert.match(inspect.message, /Meridian South/);
+  assert.match(inspect.message, /Stillwater Reserve/);
+  assert.equal(tram.getInteraction(atStop(start)), other.getInteraction(atStop(start)));
+  tram.update(19.5);
+  assert.equal(tram.getStopStatus(start.id, {}).boardingOpen, true);
+  assert.equal(tram.getInteraction(atStop(start)).kind, "board");
+  assert.equal(tram.getInteraction(aboard()).kind, "exit");
+  tram.update(0.16);
+  assert.equal(tram.getStopStatus(start.id, {}).boardingOpen, false);
+  assert.equal(tram.getInteraction(atStop(start)).kind, "inspect");
+  assert.equal(tram.getInteraction(aboard()), null);
+  assert.equal(tram.canCommitTransfer("board", start.id, atStop(start)), true);
+  assert.equal(tram.canCommitTransfer("exit", start.id, aboard()), true);
+  assert.equal(tram.canCommitTransfer("board", end.id, atStop(end)), false);
+  tram.update(0.34);
+  assert.equal(tram.canCommitTransfer("board", start.id, atStop(start)), false);
+  assert.equal(tram.canCommitTransfer("exit", start.id, aboard()), false);
+  assert.equal(other.getState({}).departureIn, 20);
+  tram.update(leg + 1e-8);
+  const terminal = tram.getStopStatus(end.id, {});
+  assert.equal(terminal.docked, true);
+  assert.equal(terminal.direction, -1);
+  assert.equal(terminal.destinationStationId, start.id);
+  assert.equal(tram.getInteraction(atStop(end)).kind, "board");
+  assert.ok(Math.abs(tram.getStopStatus(start.id, {}).arrivalIn - (20 + leg - 1e-8)) < 1e-9);
 });

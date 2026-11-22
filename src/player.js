@@ -789,6 +789,7 @@ export function createPlayer(camera, domElement, options = {}) {
       : activeConstraint
         ? activeConstraint.mode
         : "walk";
+    target.rideLineId = activeRide?.lineId ?? null;
     target.railDirection =
       activeRide || !activeConstraint || activeConstraint.mode !== "trolley"
         ? 0

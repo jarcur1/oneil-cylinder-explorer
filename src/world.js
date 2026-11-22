@@ -22,6 +22,7 @@ import { createServiceLevel } from "./service-level.js";
 import { SERVICE_FLOOR } from "./service-layout.js";
 import { createSunline } from "./sunline.js";
 import { createTram } from "./tram.js";
+import { STILLWATER_TRAM_LINE, inStillwaterTramCorridor } from "./tram-layout.js";
 import { LANDMARKS } from "./landmarks.js";
 import { wrappedDeltaTheta } from "./cylinder-math.js";
 import { createReservoir } from "./reservoir.js";
@@ -474,7 +475,8 @@ export function createWorld(scene, camera, saved = {}) {
     // Both authored neighborhoods replace random scenery, including margins.
     const arc = wrappedDeltaTheta(theta, 0) * RADIUS;
     const margin = Math.max(width, depth) / 2 + 5;
-    if (inDistrict(arc, y, margin) || inCity(arc, y, margin) || inReservoir(arc, y, margin)) continue;
+    if (inDistrict(arc, y, margin) || inCity(arc, y, margin) || inReservoir(arc, y, margin) ||
+        inStillwaterTramCorridor(arc, y, margin)) continue;
 
     // 1. Spawn clearing
     const dSpawnArc = shortestArc(theta, SPAWN.theta) * RADIUS;
@@ -629,8 +631,10 @@ export function createWorld(scene, camera, saved = {}) {
 
     const tLeft = -7.5 / RADIUS;
     const tRight = 7.5 / RADIUS;
-    treeList.push({ theta: tLeft, y, scale: 0.95 });
-    treeList.push({ theta: tRight, y, scale: 0.95 });
+    if (!inStillwaterTramCorridor(tLeft * RADIUS, y, 5))
+      treeList.push({ theta: tLeft, y, scale: 0.95 });
+    if (!inStillwaterTramCorridor(tRight * RADIUS, y, 5))
+      treeList.push({ theta: tRight, y, scale: 0.95 });
   }
 
   // Park & orchard trees
@@ -639,7 +643,8 @@ export function createWorld(scene, camera, saved = {}) {
     const y = -treeHalfSpan + rng() * (treeHalfSpan * 2);
     const theta = rng() * Math.PI * 2;
     const arc = wrappedDeltaTheta(theta, 0) * RADIUS;
-    if (inDistrict(arc, y, 6) || inCity(arc, y, 6) || inReservoir(arc, y, 6)) continue;
+    if (inDistrict(arc, y, 6) || inCity(arc, y, 6) || inReservoir(arc, y, 6) ||
+        inStillwaterTramCorridor(arc, y, 5)) continue;
 
     const dSpawnArc = shortestArc(theta, SPAWN.theta) * RADIUS;
     if (Math.hypot(dSpawnArc, Math.abs(y - SPAWN.y)) < 24.0) continue;
@@ -855,12 +860,14 @@ export function createWorld(scene, camera, saved = {}) {
   const village = createVillage(greenwayGroup);
   const farm = createFarm(greenwayGroup);
   const residents = createResidents(districtGroup);
-  const delivery = createDelivery(districtGroup, camera, saved.deliveryPhase, saved.supplyPhase);
+  const delivery = createDelivery(districtGroup, camera, saved.deliveryPhase, saved.supplyPhase, saved.plantingPhase);
   const cityStreets = createCityStreets(meridianGroup);
   const cityTower = createCityTower(meridianGroup);
   const maintenance = createMaintenance(districtGroup, saved.maintenancePhase);
   const service = createServiceLevel(meridianGroup);
   const tram = createTram(districtGroup);
+  const stillwaterTram = createTram(districtGroup, STILLWATER_TRAM_LINE);
+  const trams = Object.freeze([tram, stillwaterTram]);
   const reservoir = createReservoir(districtGroup);
   obstacles.push(
     ...copyTranslatedObstacles(village.obstacles, GREENWAY_PLACEMENT),
@@ -872,6 +879,7 @@ export function createWorld(scene, camera, saved = {}) {
     ...copyTranslatedObstacles(service.obstacles, MERIDIAN_PLACEMENT),
     ...sunline.obstacles,
     ...tram.obstacles,
+    ...stillwaterTram.obstacles,
     ...reservoir.obstacles,
     // The living surface is a deck, not the outermost pressure-hull floor.
     // Its underside stays solid above the enclosed service spaces.
@@ -932,6 +940,8 @@ export function createWorld(scene, camera, saved = {}) {
     sunline,
     residents,
     tram,
+    stillwaterTram,
+    trams,
     update,
   };
 }

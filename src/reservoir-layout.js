@@ -54,7 +54,7 @@ export const RESERVOIR_TARGETS = Object.freeze([
   Object.freeze({
     id: "stillwater-shore", name: "Stillwater shoreline", kind: "public", layer: "surface",
     theta: reservoirS(15) / RADIUS, y: reservoirY(-56), height: 0.6, range: 3,
-    hint: "Use Visit Stillwater Reserve in the intro or pause menu. Follow the entrance path north, turn east along the shore path, and climb the three shallow steps to the bank. The balancing basin is shallow; no swimming or tram service is provided yet.",
+    hint: "Take Line 02 from Meridian South or use Visit Stillwater Reserve in the intro or pause menu. Follow the entrance path north, turn east along the shore path, and climb the three shallow steps to the bank. The balancing basin is shallow; no swimming.",
   }),
   Object.freeze({
     id: "stillwater-pavilion", name: "Water-management pavilion", kind: "public", layer: "surface",

@@ -23,21 +23,29 @@ import {
   TRAM_PLATFORM_WIDTH,
   TRAM_PLATFORM_LENGTH,
   TRAM_PLATFORM_BASE,
+  AXIAL_TRAM_LINE,
+  STILLWATER_TRAM_MIN_S,
+  STILLWATER_TRAM_MAX_S,
+  STILLWATER_TRAM_Y,
 } from "./tram-layout.js";
 import { createTramState } from "./tram-state.js";
 
-const STOP_NAME_BY_ID = new Map(TRAM_STOPS.map((stop) => [stop.id, stop.name]));
+function stopNames(line) {
+  return new Map(line.stops.map((stop) => [stop.id, stop.name]));
+}
 
 const DOOR_SLIDE_DISTANCE = 0.62;
 const DOOR_CLOSE_WINDOW = 0.35;
 const WHEEL_RADIUS = 0.28;
+
+let sharedTramMaterials;
 
 function countdown(seconds) {
   const whole = Math.ceil(Math.max(0, seconds));
   return `${Math.floor(whole / 60).toString().padStart(2, "0")}:${(whole % 60).toString().padStart(2, "0")}`;
 }
 
-function createStationDisplay(stop, wide = false) {
+function createStationDisplay(stop, line, names, wide = false) {
   const canvas = document.createElement("canvas");
   canvas.width = wide ? 1024 : 512;
   canvas.height = 224;
@@ -75,11 +83,12 @@ function createStationDisplay(stop, wide = false) {
     ctx.textBaseline = "middle";
     ctx.fillStyle = "#f5f1e3";
     ctx.font = "bold 32px system-ui, sans-serif";
-    ctx.fillText(stop.name.toUpperCase(), 24, 45, 464);
+    ctx.fillText(line.axis === "theta" ? `${line.title} · ${stop.name.toUpperCase()}` : stop.name.toUpperCase(), 24, 45, 464);
     ctx.fillStyle = "#fcd34d";
     ctx.font = "bold 24px monospace";
-    const destination = STOP_NAME_BY_ID.get(status.destinationStationId);
-    ctx.fillText(`TO ${destination.toUpperCase()}`, 24, 89, 464);
+    const destination = names.get(status.destinationStationId);
+    const direction = status.direction > 0 ? line.directionLabels.forward : line.directionLabels.reverse;
+    ctx.fillText(line.axis === "theta" ? `TO ${destination.toUpperCase()} · ${direction.toUpperCase()}` : `TO ${destination.toUpperCase()}`, 24, 89, 464);
     ctx.fillStyle = status.boardingOpen ? "#d5f58e" : "#ffffff";
     ctx.font = "bold 28px monospace";
     const service = !status.docked
@@ -95,7 +104,7 @@ function createStationDisplay(stop, wide = false) {
         ? "STAND ON PAD · [E] BOARD"
         : status.docked
           ? "WAIT FOR NEXT SERVICE"
-          : `${status.direction > 0 ? "NORTHBOUND" : "SOUTHBOUND"} · DECK 13m`,
+          : `${(status.direction > 0 ? line.directionLabels.forward : line.directionLabels.reverse).toUpperCase()} · DECK 13m`,
       24, 187, 464,
     );
     texture.needsUpdate = true;
@@ -127,7 +136,7 @@ function createBoardingPadMaterial() {
   return new THREE.MeshBasicMaterial({ map: texture });
 }
 
-function createDestinationDisplay() {
+function createDestinationDisplay(line, names) {
   const canvas = document.createElement("canvas");
   canvas.width = 512;
   canvas.height = 128;
@@ -159,8 +168,10 @@ function createDestinationDisplay() {
     ctx.lineWidth = 5;
     ctx.strokeRect(5, 5, 502, 118);
 
-    const dirLabel = tramState.direction >= 0 ? "NORTHBOUND ↑" : "SOUTHBOUND ↓";
-    const nextName = STOP_NAME_BY_ID.get(tramState.nextStationId) ?? "TERMINAL";
+    const dirLabel = tramState.direction >= 0
+      ? `${line.directionLabels.forward.toUpperCase()} ${line.axis === "theta" ? "→" : "↑"}`
+      : `${line.directionLabels.reverse.toUpperCase()} ${line.axis === "theta" ? "←" : "↓"}`;
+    const nextName = names.get(tramState.nextStationId) ?? "TERMINAL";
 
     ctx.fillStyle = "#134e4a";
     ctx.fillRect(14, 14, 484, 34);
@@ -169,21 +180,22 @@ function createDestinationDisplay() {
     ctx.font = "bold 20px monospace";
     ctx.textAlign = "left";
     ctx.textBaseline = "middle";
-    ctx.fillText("CIVIC TRAM · LINE 01", 24, 31);
+    if (line.axis === "theta") ctx.fillText(line.title, 24, 31, 280);
+    else ctx.fillText(line.title, 24, 31);
 
     ctx.fillStyle = "#fcd34d";
     ctx.textAlign = "right";
     ctx.fillText(dirLabel, 488, 31);
 
     ctx.textAlign = "left";
-    const destination = STOP_NAME_BY_ID.get(tramState.destinationStationId);
+    const destination = names.get(tramState.destinationStationId);
     ctx.fillStyle = "#fef3c7";
     ctx.font = "bold 28px system-ui, sans-serif";
     ctx.fillText(`TO: ${destination.toUpperCase()}`, 22, 73, 468);
     ctx.fillStyle = "#5eead4";
     ctx.font = "bold 16px monospace";
     const position = tramState.phase === "dwell"
-      ? `AT ${STOP_NAME_BY_ID.get(tramState.stationId).toUpperCase()}`
+      ? `AT ${names.get(tramState.stationId).toUpperCase()}`
       : "IN TRANSIT";
     ctx.fillText(`${position} · NEXT: ${nextName.toUpperCase()}`, 22, 105, 468);
 
@@ -193,15 +205,99 @@ function createDestinationDisplay() {
   return { material, repaint };
 }
 
-export function createTram(parent) {
-  const state = createTramState();
+function createStillwaterInfrastructure(parent, mats, obstacles, line, names, displays) {
+  const track = new THREE.Group();
+  track.name = "stillwater_tram_track";
+  parent.add(track);
+  const start = STILLWATER_TRAM_MIN_S;
+  const end = STILLWATER_TRAM_MAX_S;
+  const center = (start + end) / 2;
+  const length = end - start;
+  addCivicSolid(track, mats.railGirder, obstacles, center, STILLWATER_TRAM_Y, length, 0.44, 0.28, 11.7);
+  for (const offset of [-0.85, 0.85]) {
+    addCivicSolid(track, mats.railGirder, obstacles, center, STILLWATER_TRAM_Y + offset, length, 0.24, 0.38, 11.7);
+    addCivicSolid(track, mats.railSteel, obstacles, center, STILLWATER_TRAM_Y + offset, length, 0.12, 0.12, 12.08);
+  }
+  for (let s = start + 2; s <= end - 2; s += 4) {
+    addCivicBlock(track, mats.gantrySteel, s, STILLWATER_TRAM_Y, 0.24, 2.05, 0.16, 11.76);
+  }
+  for (const s of [start + 0.35, end - 0.35]) {
+    addCivicSolid(track, mats.safetyYellow, obstacles, s, STILLWATER_TRAM_Y, 0.55, 2.2, 1.05, 11.7);
+  }
+
+  const gantries = new THREE.Group();
+  gantries.name = "stillwater_tram_gantries";
+  parent.add(gantries);
+  const gantryPositions = [start + 0.5, end - 0.5];
+  for (let s = start + 18; s <= end; s += 36) {
+    if (!line.stops.some((stop) => Math.abs(s - stop.trackTheta * RADIUS) <= 7)) gantryPositions.push(s);
+  }
+  for (const s of gantryPositions) {
+    for (const side of [-1, 1]) {
+      const y = STILLWATER_TRAM_Y + side * TRAM_GANTRY_ARC;
+      addCivicBlock(gantries, mats.gantrySteel, s, y, TRAM_GANTRY_COLUMN_SIZE, TRAM_GANTRY_COLUMN_SIZE, 11.65, 0.35);
+      obstacles.push({ theta: s / RADIUS, y, width: TRAM_GANTRY_COLUMN_SIZE, depth: TRAM_GANTRY_COLUMN_SIZE, height: 12, base: 0 });
+      addCivicBlock(gantries, mats.gantryPlinth, s, y, TRAM_GANTRY_COLUMN_SIZE, TRAM_GANTRY_COLUMN_SIZE, 0.35, 0);
+    }
+    addCivicSolid(gantries, mats.gantrySteel, obstacles, s, STILLWATER_TRAM_Y, 0.65, TRAM_GANTRY_ARC * 2 + TRAM_GANTRY_COLUMN_SIZE, 0.5, 11.2);
+  }
+
+  const stations = new THREE.Group();
+  stations.name = "stillwater_tram_stations";
+  parent.add(stations);
+  for (const stop of line.stops) {
+    const station = new THREE.Group();
+    station.name = `stillwater_tram_station_${stop.id}`;
+    stations.add(station);
+    const s = stop.trackTheta * RADIUS;
+    const platformY = STILLWATER_TRAM_Y - TRAM_PLATFORM_ARC;
+    // Civic arc lengths are measured at the hull, while the car sits at deck height.
+    const arcScale = RADIUS / (RADIUS - TRAM_HEIGHT);
+    const platformLength = TRAM_PLATFORM_LENGTH * arcScale;
+    addSurfacePatch(station, mats.padSlate, s, stop.y, 3.2, 2.4, 0.028);
+    addSurfacePatch(station, mats.padTealBorder, s, stop.y, 2.8, 2, 0.032);
+    const pad = addSurfacePatch(station, mats.padCenter, s, stop.y, 2.4, 1.6, 0.036);
+    const rows = pad.geometry.getAttribute("position").count / 2;
+    const uv = new Float32Array(rows * 4);
+    for (let row = 0; row < rows; row++) {
+      const u = row / (rows - 1);
+      uv.set([u, 0, u, 1], row * 4);
+    }
+    pad.geometry.setAttribute("uv", new THREE.BufferAttribute(uv, 2));
+    const mastY = STILLWATER_TRAM_Y - 4.4;
+    addCivicSolid(station, mats.gantrySteel, obstacles, s, mastY, 0.35, 0.35, TRAM_PLATFORM_BASE - 0.24, 0.24);
+    addCivicSolid(station, mats.gantryPlinth, obstacles, s, mastY, 0.48, 0.48, 0.24, 0);
+    addCivicSolid(station, mats.platformDeck, obstacles, s, platformY, platformLength, TRAM_PLATFORM_WIDTH, TRAM_HEIGHT - TRAM_PLATFORM_BASE, TRAM_PLATFORM_BASE);
+    addCivicBlock(station, mats.safetyYellow, s, platformY + TRAM_PLATFORM_WIDTH / 2 - 0.14, platformLength, 0.24, 0.03, TRAM_HEIGHT);
+    addCivicSolid(station, mats.railingsTeal, obstacles, s, platformY - TRAM_PLATFORM_WIDTH / 2 + 0.08, platformLength, 0.16, 1.15, TRAM_HEIGHT);
+    for (const offset of [-TRAM_PLATFORM_LENGTH / 2 + 0.08, TRAM_PLATFORM_LENGTH / 2 - 0.08]) {
+      addCivicSolid(station, mats.railingsTeal, obstacles, s + offset * arcScale, platformY, 0.16 * arcScale, TRAM_PLATFORM_WIDTH, 1.15, TRAM_HEIGHT);
+    }
+    for (const offset of [-3.25, 0, 3.25]) {
+      addCivicSolid(station, mats.railingsTeal, obstacles, s + offset * arcScale, platformY + TRAM_PLATFORM_WIDTH / 2 - 0.08, 1.5 * arcScale, 0.14, 1.15, TRAM_HEIGHT);
+    }
+    for (const offset of [-3.4, 3.4]) {
+      addCivicSolid(station, mats.gantrySteel, obstacles, s + offset * arcScale, platformY - TRAM_PLATFORM_WIDTH / 2 + 0.14, 0.18 * arcScale, 0.18, 2.8, TRAM_HEIGHT);
+    }
+    addCivicSolid(station, mats.canopyRoof, obstacles, s, platformY - 0.1, (TRAM_PLATFORM_LENGTH + 0.4) * arcScale, TRAM_PLATFORM_WIDTH + 0.1, 0.18, TRAM_HEIGHT + 2.8);
+    const plaque = createStationDisplay(stop, line, names);
+    const banner = createStationDisplay(stop, line, names, true);
+    displays.push({ id: stop.id, status: {}, plaque, banner });
+    addOrientedPanel(station, plaque.material, surfacePos(stop.trackTheta, mastY + 0.19, 2.4), "north", 1.5, 0.66);
+    addOrientedPanel(station, banner.material, surfacePos(stop.trackTheta, platformY + TRAM_PLATFORM_WIDTH / 2, TRAM_HEIGHT + 2.38), "north", 4.8, 0.95);
+  }
+}
+
+export function createTram(parent, line = AXIAL_TRAM_LINE) {
+  const state = createTramState(line);
+  const names = stopNames(line);
   const obstacles = [];
 
   const tramGroup = new THREE.Group();
-  tramGroup.name = "civilian_tram";
+  tramGroup.name = line.sceneName;
   parent.add(tramGroup);
 
-  const mats = {
+  const staticMats = sharedTramMaterials ??= {
     gantrySteel: new THREE.MeshStandardMaterial({
       color: 0x2c3b42,
       roughness: 0.56,
@@ -315,10 +411,13 @@ export function createTram(parent) {
     taillightMat: new THREE.MeshBasicMaterial({
       color: 0xe11d48,
     }),
-    doorStatusMat: new THREE.MeshBasicMaterial({
-      color: 0x22c55e,
-    }),
   };
+  const mats = {
+    ...staticMats,
+    doorStatusMat: new THREE.MeshBasicMaterial({ color: 0x22c55e }),
+  };
+  const stationDisplays = [];
+  if (line.axis === "y") {
 
   const trackArcCenter = TRAM_THETA * RADIUS;
   const trackLen = TRAM_TRACK_MAX_Y - TRAM_TRACK_MIN_Y;
@@ -598,7 +697,6 @@ export function createTram(parent) {
   const deckThickness = TRAM_HEIGHT - TRAM_PLATFORM_BASE;
   const guardrailHeight = 1.15;
 
-  const stationDisplays = [];
   for (const stop of TRAM_STOPS) {
     const stationGroup = new THREE.Group();
     stationGroup.name = `tram_station_${stop.id}`;
@@ -661,8 +759,8 @@ export function createTram(parent) {
     );
 
     // Mast-mounted boarding plaque (attached to mast at s = 4.21, no separate ground signpost)
-    const plaque = createStationDisplay(stop);
-    const banner = createStationDisplay(stop, true);
+    const plaque = createStationDisplay(stop, line, names);
+    const banner = createStationDisplay(stop, line, names, true);
     stationDisplays.push({ id: stop.id, status: {}, plaque, banner });
     addOrientedPanel(
       stationGroup,
@@ -806,13 +904,16 @@ export function createTram(parent) {
       0.68,
     );
   }
+  } else {
+    createStillwaterInfrastructure(tramGroup, mats, obstacles, line, names, stationDisplays);
+  }
 
   // =========================================================================
   // 4. ELEVATED TRAM CARRIAGE (civilian_tram_carriage, dynamic subtree)
   // Local frame: X = east, Y = up (0 = foot height 13m), Z = south
   // =========================================================================
   const carriageGroup = new THREE.Group();
-  carriageGroup.name = "civilian_tram_carriage";
+  carriageGroup.name = line.axis === "y" ? "civilian_tram_carriage" : "stillwater_tram_carriage";
   carriageGroup.userData.atmosphereDynamic = true;
   tramGroup.add(carriageGroup);
 
@@ -1236,7 +1337,7 @@ export function createTram(parent) {
   }
 
   // 4.9 Retained-Canvas Destination Display (1 shared canvas/texture/material)
-  const destinationDisplay = createDestinationDisplay();
+  const destinationDisplay = createDestinationDisplay(line, names);
 
   // Interior North header display (faces +Z South toward passenger)
   addCarPart(
@@ -1322,6 +1423,8 @@ export function createTram(parent) {
     );
     carriageGroup.rotation.y = -poseScratch.theta;
     carriageGroup.rotation.x = Math.PI / 2;
+    carriageGroup.rotation.z = 0;
+    if (line.axis === "theta") carriageGroup.rotateY(-Math.PI / 2);
 
     const doorOpen =
       stateScratch.phase === "dwell"
@@ -1388,6 +1491,8 @@ export function createTram(parent) {
   update(0);
 
   return {
+    lineId: line.id,
+    line,
     obstacles,
     update,
     getPose,

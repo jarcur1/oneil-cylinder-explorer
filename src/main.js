@@ -17,7 +17,6 @@ import { LANDMARKS } from "./landmarks.js";
 import { createNavigation } from "./navigation.js";
 import { createHabitatMap } from "./habitat-map.js";
 import { createWaypoint } from "./waypoint.js";
-import { TRAM_STOPS } from "./tram-layout.js";
 import {
   wrappedDeltaTheta,
   horizontalDistance,
@@ -25,7 +24,6 @@ import {
 } from "./cylinder-math.js";
 const $ = (id) => document.getElementById(id);
 const ENDCAP_AREA_Y = LENGTH / 2 - 50;
-const TRAM_STOP_BY_ID = new Map(TRAM_STOPS.map((stop) => [stop.id, stop]));
 const startButton = $("start");
 const mapButton = $("map-toggle");
 startButton.disabled = true;
@@ -151,7 +149,11 @@ try {
   const saveStore = createSaveStore();
   const saved = saveStore.load(LANDMARKS.map((stop) => stop.id));
   const world = createWorld(scene, camera, saved);
-  const { delivery, maintenance, sunline, residents, tram } = world;
+  const { delivery, maintenance, sunline, residents, trams } = world;
+  const tramByLineId = new Map(trams.map((tram) => [tram.lineId, tram]));
+  const tramStops = new Map(
+    trams.map((tram) => [tram.lineId, new Map(tram.line.stops.map((stop) => [stop.id, stop]))]),
+  );
   // Cargo remains visible under either lighting set; other world meshes do not.
   for (const child of camera.children)
     child.traverse((node) => node.layers.enable(1));
@@ -176,9 +178,35 @@ try {
   const navigation = createNavigation();
   const waypointMarker = createWaypoint(camera, ui.waypoint);
   const waypointResult = {};
-  const tramMapSnapshot = {};
+  const tramMapSnapshots = trams.map((tram) => ({ lineId: tram.lineId, state: {} }));
   const tramHudSnapshot = {};
   const tramStopSnapshot = {};
+  const tramInteraction = { tram: null, action: null };
+  function getTramInteraction(state) {
+    tramInteraction.tram = null;
+    tramInteraction.action = null;
+    if (state.traversalMode === "tram") {
+      const tram = tramByLineId.get(state.rideLineId);
+      if (tram) {
+        tramInteraction.tram = tram;
+        tramInteraction.action = tram.getInteraction(state);
+      }
+      return tramInteraction;
+    }
+    for (const tram of trams) {
+      const action = tram.getInteraction(state);
+      if (action?.kind === "board") {
+        tramInteraction.tram = tram;
+        tramInteraction.action = action;
+        break;
+      }
+      if (action?.kind === "inspect" && !tramInteraction.action) {
+        tramInteraction.tram = tram;
+        tramInteraction.action = action;
+      }
+    }
+    return tramInteraction;
+  }
   const jobViews = {
     delivery: null,
     maintenance: null,
@@ -261,6 +289,7 @@ try {
       discoveries: [...found],
       deliveryPhase: delivery.getPhase(),
       supplyPhase: delivery.getSupplyPhase(),
+      plantingPhase: delivery.getPlantingPhase(),
       maintenancePhase: maintenance.getPhase(),
       sunlinePhase: sunline.getPhase(),
       muted: soundscape.getState().muted,
@@ -518,13 +547,16 @@ try {
     const jobs = getJobViews(state);
     const selection = navigation.getSelection();
     const waypoint = navigation.getWaypoint(state, jobs, waypointResult);
+    for (let i = 0; i < trams.length; i++) {
+      trams[i].getState(tramMapSnapshots[i].state);
+    }
     return {
       player: state,
       found,
       jobs,
       selection,
       waypoint,
-      tram: tram.getState(tramMapSnapshot),
+      trams: tramMapSnapshots,
     };
   }
 
@@ -704,15 +736,17 @@ try {
     const axialHub = getAxialHub(state);
     let areaText;
     if (state.traversalMode === "tram") {
-      const tramState = tram.getState(tramHudSnapshot);
-      const stopId = tramState.stationId || tramState.nextStationId;
-      const stop = stopId ? TRAM_STOP_BY_ID.get(stopId) : null;
-      if (tramState.stationId && stop) {
-        areaText = `CIVILIAN TRAM · ${stop.name.toUpperCase()}`;
+      const tram = tramByLineId.get(state.rideLineId);
+      const tramState = tram?.getState(tramHudSnapshot);
+      const stopId = tramState && (tramState.stationId || tramState.nextStationId);
+      const stop = stopId ? tramStops.get(tram.lineId).get(stopId) : null;
+      const name = tram?.line.axis === "theta" ? "STILLWATER TRAM" : "CIVILIAN TRAM";
+      if (tramState?.stationId && stop) {
+        areaText = `${name} · ${stop.name.toUpperCase()}`;
       } else if (stop) {
-        areaText = `CIVILIAN TRAM · TO ${stop.name.toUpperCase()}`;
+        areaText = `${name} · TO ${stop.name.toUpperCase()}`;
       } else {
-        areaText = "CIVILIAN TRAM · ELEVATED GUIDEWAY";
+        areaText = `${name} · ELEVATED GUIDEWAY`;
       }
     } else if (axialHub) {
       areaText = `${axialHub.label.toUpperCase()} · MAINTENANCE HUB`;
@@ -869,7 +903,7 @@ try {
       )
         closeDialogue();
     }
-    const tramAction = pendingTransfer ? null : tram.getInteraction(state);
+    const tramAction = pendingTransfer ? null : getTramInteraction(state).action;
     const lift =
       pendingTransfer || state.traversalMode === "tram"
         ? null
@@ -942,6 +976,7 @@ try {
         discoveries: [],
         deliveryPhase: "available",
         supplyPhase: "available",
+        plantingPhase: "available",
         maintenancePhase: "available",
         sunlinePhase: "available",
         muted: soundscape.getState().muted,
@@ -1013,12 +1048,13 @@ try {
     event.preventDefault();
     try {
       const state = player.getState(playerState);
-      const tramAction = tram.getInteraction(state);
+      const { tram, action: tramAction } = getTramInteraction(state);
       if (state.traversalMode === "tram") {
         if (tramAction?.kind === "exit") {
           closeDialogue();
           pendingTransfer = {
             kind: "exit",
+            tram,
             stationId: tramAction.stationId,
             message: tramAction.message,
           };
@@ -1034,6 +1070,7 @@ try {
         closeDialogue();
         pendingTransfer = {
           kind: "board",
+          tram,
           stationId: tramAction.stationId,
           message: tramAction.message,
         };
@@ -1066,6 +1103,11 @@ try {
       const result = delivery.interact(state);
       if (result) {
         closeDialogue();
+        const tracking = navigation.getSelection();
+        if (delivery.getPlantingPhase() === "complete" &&
+            tracking?.kind === "job" && tracking.id === "delivery") {
+          navigation.select(null);
+        }
         saveProgress();
         showToast(result.message, 5);
         updateHUD();
@@ -1096,8 +1138,9 @@ try {
         closeDialogue();
         const status = tram.getStopStatus(tramAction.stationId, tramStopSnapshot);
         if (!status) throw new Error(`Unknown tram station: ${tramAction.stationId}`);
-        const stop = TRAM_STOP_BY_ID.get(status.stationId);
-        const destination = TRAM_STOP_BY_ID.get(status.destinationStationId);
+        const stops = tramStops.get(tram.lineId);
+        const stop = stops.get(status.stationId);
+        const destination = stops.get(status.destinationStationId);
         const service = !status.docked
           ? `Arrives in ${Math.ceil(status.arrivalIn)} s`
           : status.boardingOpen
@@ -1184,18 +1227,18 @@ try {
     const dt = Math.min(clock.getDelta(), 0.05);
     elapsed += dt;
     try {
-      tram.update(dt);
+      for (const tram of trams) tram.update(dt);
       if (pendingTransfer && !travelMoved && elapsed >= travelAt) {
         player.getState(playerState);
         if (pendingTransfer.kind === "board") {
           if (
-            tram.canCommitTransfer(
+            pendingTransfer.tram.canCommitTransfer(
               "board",
               pendingTransfer.stationId,
               playerState,
             )
           ) {
-            player.attachRide(tram);
+            player.attachRide(pendingTransfer.tram);
             travelMoved = true;
             ui.viewport.classList.remove("lift-travel");
             updateHUD();
@@ -1206,13 +1249,13 @@ try {
           }
         } else if (pendingTransfer.kind === "exit") {
           if (
-            tram.canCommitTransfer(
+            pendingTransfer.tram.canCommitTransfer(
               "exit",
               pendingTransfer.stationId,
               playerState,
             )
           ) {
-            const stop = TRAM_STOP_BY_ID.get(pendingTransfer.stationId);
+            const stop = tramStops.get(pendingTransfer.tram.lineId).get(pendingTransfer.stationId);
             if (!stop) {
               throw new Error(
                 `Unknown tram stop: ${pendingTransfer.stationId}`,
@@ -1261,7 +1304,7 @@ try {
     if (!fatalError) renderer.render(scene, camera);
   }
 
-  tram.update(0);
+  for (const tram of trams) tram.update(0);
   player.update(0);
   player.getState(playerState);
   updateSoundControl();

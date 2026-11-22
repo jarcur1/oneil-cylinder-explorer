@@ -76,6 +76,7 @@
         TRAM_DWELL,
         TRAM_BOARD_WINDOW,
         TRAM_STOPS,
+        STILLWATER_TRAM_STOPS,
         TRAM_TRACK_MIN_Y,
         TRAM_TRACK_MAX_Y,
         TRAM_GANTRY_YS,
@@ -129,7 +130,7 @@
       function step(dt = 1 / 60, { updateWorld = true, render = false } = {}) {
         if (updateWorld) {
           elapsed += dt;
-          world.tram.update(dt);
+          for (const tram of world.trams) tram.update(dt);
         }
         player.update(dt);
         player.getState(state);
@@ -460,12 +461,14 @@
       const _tramPose = {};
       const _tramState = {};
 
-      function inspectTram() {
+      function inspectTram(lineId = "line-01") {
         scene.updateMatrixWorld(true);
-        const root = scene.getObjectByName("civilian_tram");
-        const carriage = scene.getObjectByName("civilian_tram_carriage");
-        const pose = world.tram.getPose(_tramPose);
-        const tramState = world.tram.getState(_tramState);
+        const tram = world.trams.find((entry) => entry.lineId === lineId);
+        if (!tram) throw new Error(`Unknown tram line: ${lineId}`);
+        const root = scene.getObjectByName(tram.line.sceneName);
+        const carriage = scene.getObjectByName(`${tram.line.sceneName}_carriage`);
+        const pose = tram.getPose(_tramPose);
+        const tramState = tram.getState(_tramState);
         const expectedFoot = surfacePos(pose.theta, pose.y, pose.height);
         const expectedEye = surfacePos(
           pose.theta,
@@ -1060,7 +1063,7 @@
         return { ...state, elapsed };
       }
 
-      world.tram.update(0);
+      for (const tram of world.trams) tram.update(0);
       player.update(0);
       world.update(0, 0, player.getState(state));
       renderer.render(scene, camera);
@@ -1136,6 +1139,7 @@
           TRAM_DWELL,
           TRAM_BOARD_WINDOW,
           TRAM_STOPS,
+          STILLWATER_TRAM_STOPS,
           TRAM_TRACK_MIN_Y,
           TRAM_TRACK_MAX_Y,
           TRAM_GANTRY_YS,
