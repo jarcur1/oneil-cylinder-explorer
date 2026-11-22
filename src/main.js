@@ -289,6 +289,7 @@ try {
       discoveries: [...found],
       deliveryPhase: delivery.getPhase(),
       supplyPhase: delivery.getSupplyPhase(),
+      plantingPhase: delivery.getPlantingPhase(),
       maintenancePhase: maintenance.getPhase(),
       sunlinePhase: sunline.getPhase(),
       muted: soundscape.getState().muted,
@@ -975,6 +976,7 @@ try {
         discoveries: [],
         deliveryPhase: "available",
         supplyPhase: "available",
+        plantingPhase: "available",
         maintenancePhase: "available",
         sunlinePhase: "available",
         muted: soundscape.getState().muted,
@@ -1101,6 +1103,11 @@ try {
       const result = delivery.interact(state);
       if (result) {
         closeDialogue();
+        const tracking = navigation.getSelection();
+        if (delivery.getPlantingPhase() === "complete" &&
+            tracking?.kind === "job" && tracking.id === "delivery") {
+          navigation.select(null);
+        }
         saveProgress();
         showToast(result.message, 5);
         updateHUD();

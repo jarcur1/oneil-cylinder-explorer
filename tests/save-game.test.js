@@ -22,6 +22,7 @@ test("progress and completed jobs survive fresh save-store instances", () => {
     discoveries: ["plaza", "skywalk"],
     deliveryPhase: "carrying",
     supplyPhase: "available",
+    plantingPhase: "available",
     maintenancePhase: "repaired",
     sunlinePhase: "isolated",
     muted: true,
@@ -61,6 +62,7 @@ test("unsupported schema version falls back to defaults with recovered=true", ()
     discoveries: [],
     deliveryPhase: "available",
     supplyPhase: "available",
+    plantingPhase: "available",
     maintenancePhase: "available",
     sunlinePhase: "available",
     muted: false,
@@ -83,6 +85,7 @@ test("malformed JSON in storage recovers to defaults without crashing", () => {
     discoveries: [],
     deliveryPhase: "available",
     supplyPhase: "available",
+    plantingPhase: "available",
     maintenancePhase: "available",
     sunlinePhase: "available",
     muted: false,
@@ -100,6 +103,7 @@ test("a valid JSON null record recovers without crashing startup", () => {
     discoveries: [],
     deliveryPhase: "available",
     supplyPhase: "available",
+    plantingPhase: "available",
     maintenancePhase: "available",
     sunlinePhase: "available",
     muted: false,
@@ -125,6 +129,7 @@ test("invalid phase values and types are normalized with recovered=true", () => 
     discoveries: [],
     deliveryPhase: "available",
     supplyPhase: "available",
+    plantingPhase: "available",
     maintenancePhase: "available",
     sunlinePhase: "available",
     muted: false,
@@ -170,6 +175,7 @@ test("storage getter failure is caught safely and exposed in getStatus", () => {
     discoveries: [],
     deliveryPhase: "available",
     supplyPhase: "available",
+    plantingPhase: "available",
     maintenancePhase: "available",
     sunlinePhase: "available",
     muted: false,
@@ -196,6 +202,7 @@ test("storage read exception returns defaults and updates getStatus", () => {
     discoveries: [],
     deliveryPhase: "available",
     supplyPhase: "available",
+    plantingPhase: "available",
     maintenancePhase: "available",
     sunlinePhase: "available",
     muted: false,
@@ -241,6 +248,7 @@ test("legacy v1 save without sunlinePhase loads without recovery or data loss", 
     discoveries: ["plaza", "skywalk"],
     deliveryPhase: "carrying",
     supplyPhase: "available",
+    plantingPhase: "available",
     maintenancePhase: "repaired",
     sunlinePhase: "available",
     muted: true,
@@ -295,6 +303,7 @@ test("legacy seed-complete saves unlock produce without recovery or lost progres
   const store = createSaveStore(() => storage);
   assert.deepEqual(store.load(["plaza"]), {
     discoveries: ["plaza"], deliveryPhase: "complete", supplyPhase: "available",
+    plantingPhase: "available",
     maintenancePhase: "repaired", sunlinePhase: "replaced", muted: true,
   });
   assert.equal(store.getStatus().recovered, false);
@@ -323,4 +332,61 @@ test("produce carrying and completion survive reload, but cannot precede seed co
   }) }));
   assert.equal(invalid.load().supplyPhase, "available");
   assert.equal(invalid.getStatus().recovered, true);
+});
+
+test("legacy produce-complete saves unlock planting without recovery", () => {
+  const storage = createMockStorage({ [SAVE_KEY]: JSON.stringify({
+    version: 1, discoveries: ["plaza"], deliveryPhase: "complete",
+    supplyPhase: "complete", maintenancePhase: "repaired",
+    sunlinePhase: "replaced", muted: true,
+  }) });
+  const store = createSaveStore(() => storage);
+  assert.deepEqual(store.load(), {
+    discoveries: ["plaza"], deliveryPhase: "complete", supplyPhase: "complete",
+    plantingPhase: "available", maintenancePhase: "repaired",
+    sunlinePhase: "replaced", muted: true,
+  });
+  assert.equal(store.getStatus().recovered, false);
+});
+
+test("planting progress roundtrips only after both earlier runs complete", () => {
+  for (const plantingPhase of ["carrying", "complete"]) {
+    const storage = createMockStorage();
+    const store = createSaveStore(() => storage);
+    const progress = {
+      discoveries: [], deliveryPhase: "complete", supplyPhase: "complete",
+      plantingPhase, maintenancePhase: "available", sunlinePhase: "available",
+      muted: false,
+    };
+    assert.equal(store.save(progress), true);
+    assert.deepEqual(JSON.parse(storage.getItem(SAVE_KEY)), { version: 1, ...progress });
+    const restored = createSaveStore(() => storage);
+    assert.deepEqual(restored.load(), progress);
+    assert.equal(restored.getStatus().recovered, false);
+
+    for (const [deliveryPhase, supplyPhase] of [
+      ["complete", "carrying"], ["available", "complete"],
+    ]) {
+      assert.equal(store.save({ ...progress, deliveryPhase, supplyPhase }), true);
+      assert.equal(createSaveStore(() => storage).load().plantingPhase, "available");
+      storage.setItem(SAVE_KEY, JSON.stringify({
+        version: 1, ...progress, deliveryPhase, supplyPhase,
+      }));
+      const contradictory = createSaveStore(() => storage);
+      assert.equal(contradictory.load().plantingPhase, "available");
+      assert.equal(contradictory.getStatus().recovered, true);
+    }
+  }
+});
+
+test("invalid present planting phase recovers to available", () => {
+  for (const plantingPhase of ["lost", null, 1]) {
+    const storage = createMockStorage({ [SAVE_KEY]: JSON.stringify({
+      version: 1, discoveries: [], deliveryPhase: "complete", supplyPhase: "complete",
+      plantingPhase, maintenancePhase: "available", sunlinePhase: "available", muted: false,
+    }) });
+    const store = createSaveStore(() => storage);
+    assert.equal(store.load().plantingPhase, "available");
+    assert.equal(store.getStatus().recovered, true);
+  }
 });

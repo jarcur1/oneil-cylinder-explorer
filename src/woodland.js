@@ -3,6 +3,7 @@ import { RADIUS } from "./habitat.js";
 import { setSurfaceMatrix } from "./surface.js";
 import { RESERVOIR_LAYOUT, reservoirS, reservoirY } from "./reservoir-layout.js";
 import { inStillwaterTramCorridor } from "./tram-layout.js";
+import { PLANTING_BED } from "./delivery-layout.js";
 
 // Groves are deliberately irregular, leaving open glades between them. The
 // eastern and northern groves are drier; those by the shore favor birch.
@@ -26,6 +27,7 @@ function clearOfPublicSpace(s, y, margin) {
   const { bounds, basin, bank, pavilion, lookout, paths } = RESERVOIR_LAYOUT;
   if (s < bounds.minS + margin || s > bounds.maxS - margin ||
       y < bounds.minY + margin || y > bounds.maxY - margin) return false;
+  if (insideRect(s, y, PLANTING_BED, margin)) return false;
   if (insideRect(s, y, basin, bank.width + margin) ||
       insideRect(s, y, pavilion, margin + 2) ||
       insideRect(s, y, lookout, margin + 2)) return false;

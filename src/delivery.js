@@ -2,7 +2,8 @@ import * as THREE from "three";
 import { RADIUS } from "./habitat.js";
 import { horizontalDistance } from "./cylinder-math.js";
 import { surfacePos } from "./surface.js";
-import { DELIVERY_STATIONS, SUPPLY_STATIONS } from "./delivery-layout.js";
+import { DELIVERY_STATIONS, SUPPLY_STATIONS, PLANTING_BED, PLANTING_STATIONS } from "./delivery-layout.js";
+import { reservoirS, reservoirY } from "./reservoir-layout.js";
 
 /**
  * Creates dynamic canvas textures for legible station signage.
@@ -191,6 +192,30 @@ function buildStationCrate(crateLabelTexture) {
   return group;
 }
 
+// The same recognizable tray is staged at dispatch and carried by the player.
+function buildSeedlingTray() {
+  const group = new THREE.Group();
+  const tray = new THREE.Mesh(new THREE.BoxGeometry(0.62, 0.45, 0.12),
+    new THREE.MeshLambertMaterial({ color: 0x34463a }));
+  group.add(tray);
+  const stemGeo = new THREE.CylinderGeometry(0.012, 0.018, 0.25, 5).rotateX(Math.PI / 2);
+  const leafGeo = new THREE.SphereGeometry(0.085, 6, 4);
+  const stemMat = new THREE.MeshLambertMaterial({ color: 0x71904b });
+  const leafMat = new THREE.MeshLambertMaterial({ color: 0x68a64e });
+  for (const x of [-0.2, 0, 0.2]) {
+    for (const y of [-0.13, 0.13]) {
+      const stem = new THREE.Mesh(stemGeo, stemMat);
+      stem.position.set(x, y, 0.18);
+      group.add(stem);
+      const leaves = new THREE.Mesh(leafGeo, leafMat);
+      leaves.position.set(x, y, 0.32);
+      leaves.scale.set(1, 0.8, 1.25);
+      group.add(leaves);
+    }
+  }
+  return group;
+}
+
 /**
  * Builds a subtle, eye-catching floating station beacon.
  */
@@ -220,16 +245,16 @@ function buildStationMarker(accentColor, ringColor) {
 }
 
 /**
- * Manages the seed delivery followed by the farm-to-city supply run, station visuals,
- * carried camera-attached prop, and interaction state.
+ * Manages the seed, produce, and woodland planting delivery legs.
  *
  * @param {THREE.Object3D} parent - District world group in the O'Neill cylinder
  * @param {THREE.Camera} camera - Player PerspectiveCamera
  * @param {string} [initialPhase="available"] - Restored seed delivery phase
  * @param {string} [initialSupplyPhase="available"] - Restored unlocked produce phase
- * @returns {{ obstacles, update, setActive, getView, interact, getPhase, getSupplyPhase }}
+ * @param {string} [initialPlantingPhase="available"] - Restored unlocked planting phase
+ * @returns {{ obstacles, update, setActive, getView, interact, getPhase, getSupplyPhase, getPlantingPhase }}
  */
-export function createDelivery(parent, camera, initialPhase = "available", initialSupplyPhase = "available") {
+export function createDelivery(parent, camera, initialPhase = "available", initialSupplyPhase = "available", initialPlantingPhase = "available") {
   const deliveryGroup = new THREE.Group();
   deliveryGroup.name = "delivery_stations";
   parent.add(deliveryGroup);
@@ -267,6 +292,14 @@ export function createDelivery(parent, camera, initialPhase = "available", initi
     range: SUPPLY_STATIONS.dropoff.range,
     name: "Meridian produce receiver",
   });
+  const TARGET_PLANTING_PICKUP = Object.freeze({
+    theta: PLANTING_STATIONS.pickup.s / RADIUS, y: PLANTING_STATIONS.pickup.y,
+    height: 0, range: PLANTING_STATIONS.pickup.range, name: "Glasshouse 01 seedling dispatch",
+  });
+  const TARGET_PLANTING_DROPOFF = Object.freeze({
+    theta: PLANTING_STATIONS.dropoff.s / RADIUS, y: PLANTING_STATIONS.dropoff.y,
+    height: 0, range: PLANTING_STATIONS.dropoff.range, name: "Stillwater restoration plot",
+  });
 
   // Matching static ground collision boxes (crate is decorative)
   const obstacles = [
@@ -290,6 +323,11 @@ export function createDelivery(parent, camera, initialPhase = "available", initi
       width: 1.4,
       depth: 0.8,
       height: 0.85,
+    },
+    {
+      theta: reservoirS(PLANTING_BED.s) / RADIUS,
+      y: reservoirY(PLANTING_BED.y),
+      width: PLANTING_BED.width, depth: PLANTING_BED.depth, height: 0.45,
     },
   ];
 
@@ -435,6 +473,7 @@ export function createDelivery(parent, camera, initialPhase = "available", initi
     "#26c6da",
   );
   const dispatchSignTex = createStationSignTexture("DISPATCH", "GLASSHOUSE 01", "Produce for Meridian Plaza", "#67c488");
+  const plantingSignTex = createStationSignTexture("DISPATCH", "GLASSHOUSE 01", "Seedlings for Stillwater", "#a9d76e");
   const dropoffSignMat = new THREE.MeshBasicMaterial({
     map: dropoffSignTex,
     side: THREE.DoubleSide,
@@ -450,12 +489,67 @@ export function createDelivery(parent, camera, initialPhase = "available", initi
   dropoffCrateGroup.position.set(0, 0, 1.03);
   dropoffCrateGroup.visible = false;
   dropoffGroup.add(dropoffCrateGroup);
+  const dispatchTray = buildSeedlingTray();
+  dispatchTray.position.set(0, 0, 0.91);
+  dropoffGroup.add(dispatchTray);
 
   // Subtle floating beacon above dropoff table
   const dropoffMarker = buildStationMarker(0x26c6da, 0xffb74d);
   dropoffMarker.group.position.set(0, 0, 1.62);
   dropoffMarker.group.visible = false;
   dropoffGroup.add(dropoffMarker.group);
+
+  // The bed is static; only the saplings change visibility, and never cast
+  // baked shadows, so a completed run and a reload look the same.
+  const bed = new THREE.Group();
+  bed.name = "stillwater_planting_bed";
+  bed.position.copy(surfacePos(reservoirS(PLANTING_BED.s) / RADIUS, reservoirY(PLANTING_BED.y), 0));
+  bed.rotation.y = -reservoirS(PLANTING_BED.s) / RADIUS;
+  deliveryGroup.add(bed);
+  const bedWood = new THREE.MeshLambertMaterial({ color: 0x79543a });
+  const soil = new THREE.Mesh(new THREE.BoxGeometry(PLANTING_BED.width - 0.2, PLANTING_BED.depth - 0.2, 0.3),
+    new THREE.MeshLambertMaterial({ color: 0x49382a }));
+  soil.position.z = 0.2;
+  bed.add(soil);
+  for (const x of [-PLANTING_BED.width / 2 + 0.1, PLANTING_BED.width / 2 - 0.1]) {
+    const rail = new THREE.Mesh(new THREE.BoxGeometry(0.2, PLANTING_BED.depth, 0.45), bedWood);
+    rail.position.set(x, 0, 0.225);
+    bed.add(rail);
+  }
+  for (const y of [-PLANTING_BED.depth / 2 + 0.1, PLANTING_BED.depth / 2 - 0.1]) {
+    const rail = new THREE.Mesh(new THREE.BoxGeometry(PLANTING_BED.width - 0.4, 0.2, 0.45), bedWood);
+    rail.position.set(0, y, 0.225);
+    bed.add(rail);
+  }
+  const postGeo = new THREE.BoxGeometry(0.09, 0.09, 0.68);
+  for (const y of [-0.5, 0.5]) {
+    const post = new THREE.Mesh(postGeo, bedWood);
+    post.position.set(-PLANTING_BED.width / 2 + 0.06, y, 0.68);
+    bed.add(post);
+  }
+  const bedSign = new THREE.Mesh(new THREE.PlaneGeometry(1.35, 0.65),
+    new THREE.MeshBasicMaterial({ map: createStationSignTexture("RESTORATION", "STILLWATER", "Woodland planting plot", "#a9d76e"), side: THREE.DoubleSide }));
+  bedSign.position.set(-PLANTING_BED.width / 2 - 0.01, 0, 0.85);
+  bedSign.rotation.set(Math.PI / 2, -Math.PI / 2, 0);
+  bed.add(bedSign);
+  const planted = new THREE.Group();
+  planted.name = "stillwater_planted_seedlings";
+  const trunkGeo = new THREE.CylinderGeometry(0.035, 0.06, 0.85, 6).rotateX(Math.PI / 2);
+  const crownGeo = new THREE.IcosahedronGeometry(0.34, 1);
+  const trunkMat = new THREE.MeshLambertMaterial({ color: 0x73573b });
+  const crownMat = new THREE.MeshLambertMaterial({ color: 0x649a4d });
+  for (const x of [-1.1, 0, 1.1]) {
+    for (const y of [-1.5, 0, 1.5]) {
+      const trunk = new THREE.Mesh(trunkGeo, trunkMat);
+      trunk.position.set(x, y, 0.78);
+      planted.add(trunk);
+      const crown = new THREE.Mesh(crownGeo, crownMat);
+      crown.position.set(x, y, 1.3);
+      crown.scale.z = 1.4;
+      planted.add(crown);
+    }
+  }
+  bed.add(planted);
 
   // ----------------------------------------------------
   // 3. CARRIED CRATE PROP (Attached to Camera)
@@ -466,6 +560,11 @@ export function createDelivery(parent, camera, initialPhase = "available", initi
   carriedCrateGroup.position.set(0.4, -0.35, -0.85);
   carriedCrateGroup.visible = false;
   camera.add(carriedCrateGroup);
+  const carriedTray = buildSeedlingTray();
+  carriedTray.name = "carried_woodland_seedlings";
+  carriedTray.scale.setScalar(0.55);
+  carriedTray.rotation.x = -Math.PI / 2;
+  carriedCrateGroup.add(carriedTray);
 
   const carriedWoodMat = new THREE.MeshLambertMaterial({ color: 0x825a38 });
   const carriedBracketMat = new THREE.MeshLambertMaterial({ color: 0x223231 });
@@ -516,23 +615,35 @@ export function createDelivery(parent, camera, initialPhase = "available", initi
   let supplyPhase = phase === "complete" && VALID_PHASES.has(initialSupplyPhase)
     ? initialSupplyPhase
     : "available";
+  let plantingPhase = phase === "complete" && supplyPhase === "complete" && VALID_PHASES.has(initialPlantingPhase)
+    ? initialPlantingPhase
+    : "available";
   let active = false;
 
   function isCarrying() {
-    return phase === "carrying" || (phase === "complete" && supplyPhase === "carrying");
+    return phase === "carrying" || (phase === "complete" && supplyPhase === "carrying") ||
+      (phase === "complete" && supplyPhase === "complete" && plantingPhase === "carrying");
   }
 
   function updateVisualsForPhase() {
     const unlocked = phase === "complete";
+    const plantingUnlocked = unlocked && supplyPhase === "complete";
     pickupCrateGroup.visible = phase === "available";
     pickupMarker.group.visible = phase === "available";
     dropoffCrateGroup.visible = unlocked && supplyPhase === "available";
-    dropoffMarker.group.visible = phase === "carrying" || (unlocked && supplyPhase === "available");
+    dispatchTray.visible = plantingUnlocked && plantingPhase === "available";
+    dropoffMarker.group.visible = phase === "carrying" || (unlocked && supplyPhase === "available") ||
+      (plantingUnlocked && plantingPhase === "available");
     supplyMarker.group.visible = unlocked && supplyPhase === "carrying";
-    receivedProduce.visible = unlocked && supplyPhase === "complete";
+    receivedProduce.visible = plantingUnlocked;
+    planted.visible = plantingUnlocked && plantingPhase === "complete";
     carriedCrateGroup.visible = active && isCarrying();
+    carriedTray.visible = plantingUnlocked && plantingPhase === "carrying";
+    for (const child of carriedCrateGroup.children) {
+      if (child !== carriedTray) child.visible = !carriedTray.visible;
+    }
     if (unlocked) {
-      dropoffSignMat.map = dispatchSignTex;
+      dropoffSignMat.map = plantingUnlocked ? plantingSignTex : dispatchSignTex;
       dropoffCrateGroup.traverse((node) => {
         if (node.isMesh && node.material.map === crateLabelTexture) {
           node.material.map = produceLabelTexture;
@@ -546,7 +657,7 @@ export function createDelivery(parent, camera, initialPhase = "available", initi
   updateVisualsForPhase();
 
   /**
-   * Returns the saved seed phase; the active HUD advances to produce after completion.
+   * Returns the saved seed phase, independent of the active delivery leg.
    *
    * @returns {"available" | "carrying" | "complete"}
    */
@@ -556,6 +667,10 @@ export function createDelivery(parent, camera, initialPhase = "available", initi
 
   function getSupplyPhase() {
     return supplyPhase;
+  }
+
+  function getPlantingPhase() {
+    return plantingPhase;
   }
 
   /**
@@ -608,7 +723,17 @@ export function createDelivery(parent, camera, initialPhase = "available", initi
     if (supplyPhase === "carrying" && isEligible(playerState, SUPPLY_STATIONS.dropoff)) {
       supplyPhase = "complete";
       updateVisualsForPhase();
-      return { phase: "complete", message: "Fresh produce delivered to Meridian Plaza. Thank you!" };
+      return { phase: "complete", message: "Fresh produce delivered. Collect seedlings at Glasshouse 01 for Stillwater." };
+    }
+    if (supplyPhase === "complete" && plantingPhase === "available" && isEligible(playerState, PLANTING_STATIONS.pickup)) {
+      plantingPhase = "carrying";
+      updateVisualsForPhase();
+      return { phase: "carrying", message: "Seedling tray collected for Stillwater." };
+    }
+    if (supplyPhase === "complete" && plantingPhase === "carrying" && isEligible(playerState, PLANTING_STATIONS.dropoff)) {
+      plantingPhase = "complete";
+      updateVisualsForPhase();
+      return { phase: "complete", message: "Seedlings planted at the Stillwater restoration plot." };
     }
 
     return null;
@@ -621,24 +746,41 @@ export function createDelivery(parent, camera, initialPhase = "available", initi
    * @returns {{ id, phase, title, objective, inventory, prompt, target, distance, progress, status }}
    */
   function getView(playerState) {
+    if (phase === "complete" && supplyPhase === "complete") {
+      const carrying = plantingPhase === "carrying";
+      const complete = plantingPhase === "complete";
+      const station = carrying ? PLANTING_STATIONS.dropoff : PLANTING_STATIONS.pickup;
+      const target = complete ? null : carrying ? TARGET_PLANTING_DROPOFF : TARGET_PLANTING_PICKUP;
+      return {
+        id: "planting",
+        phase: plantingPhase,
+        title: "Stillwater restoration",
+        objective: complete ? "Seedlings planted at the Stillwater restoration plot." : carrying
+          ? "Leave by the glasshouse south door and take the south lane to Line 01. Ride to Meridian Plaza, walk south to Meridian South and take Line 02, then follow the entrance path to the plot."
+          : "Collect the seedling tray at Glasshouse 01. From the tram, use the south lane and glasshouse south door.",
+        inventory: carrying ? "Woodland seedling tray" : "",
+        prompt: !complete && isEligible(playerState, station) ? (carrying ? "Plant seedlings" : "Collect seedling tray") : null,
+        target,
+        distance: playerState && target ? horizontalDistance(playerState.theta, playerState.y, target.theta, target.y, 0) : 0,
+        progress: complete ? "2 / 2" : carrying ? "1 / 2" : "0 / 2",
+        status: complete ? "RESTORATION COMPLETE" : carrying ? "PLANT AT STILLWATER" : "READY FOR PICKUP",
+      };
+    }
     const produce = phase === "complete";
     const currentPhase = produce ? supplyPhase : phase;
     const carrying = currentPhase === "carrying";
-    const complete = currentPhase === "complete";
     const station = produce
       ? (carrying ? SUPPLY_STATIONS.dropoff : SUPPLY_STATIONS.pickup)
       : (carrying ? DELIVERY_STATIONS.dropoff : DELIVERY_STATIONS.pickup);
-    const target = complete ? null : produce
+    const target = produce
       ? (carrying ? TARGET_SUPPLY_DROPOFF : TARGET_SUPPLY_PICKUP)
       : (carrying ? TARGET_DROPOFF : TARGET_PICKUP);
-    const eligible = !complete && isEligible(playerState, station);
+    const eligible = isEligible(playerState, station);
     let objective;
     if (!produce) {
       objective = carrying
         ? "Take the east lane to Glasshouse 01. The receiving desk is on the right inside."
         : "Collect the heritage seed crate east of the square approach.";
-    } else if (complete) {
-      objective = "Fresh produce delivered to Meridian Plaza. Farm and city are connected!";
     } else {
       objective = carrying
         ? "Exit by the glasshouse south door; take the south cross-lane west to the tram. Ride to Meridian Plaza. From its pad walk north just short of the next gantry, east to the receiver lane, then north to the desk."
@@ -658,8 +800,8 @@ export function createDelivery(parent, camera, initialPhase = "available", initi
       distance: playerState && target
         ? horizontalDistance(playerState.theta, playerState.y, target.theta, target.y, 0)
         : 0,
-      progress: complete ? "2 / 2" : carrying ? "1 / 2" : "0 / 2",
-      status: complete ? "SUPPLY RUN COMPLETE" : carrying
+      progress: carrying ? "1 / 2" : "0 / 2",
+      status: carrying
         ? (produce ? "DELIVER TO MERIDIAN PLAZA" : "DELIVER TO GLASSHOUSE 01")
         : "READY FOR PICKUP",
     };
@@ -720,5 +862,6 @@ export function createDelivery(parent, camera, initialPhase = "available", initi
     interact,
     getPhase,
     getSupplyPhase,
+    getPlantingPhase,
   };
 }
