@@ -644,6 +644,26 @@ footer {
   vertical-align: middle;
 }
 
+.drone-hud {
+  position: absolute;
+  z-index: 5;
+  left: 50%;
+  bottom: 58px;
+  transform: translateX(-50%);
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: center;
+  gap: 8px 16px;
+  width: max-content;
+  max-width: calc(100% - 32px);
+  padding: 12px 16px;
+  border: 1px solid #ffffff35;
+  border-radius: 12px;
+  background: #101e25ed;
+  color: #e5f3e8;
+  font-size: 12px;
+}
 @media (max-width: 750px) {
   .topbar {
     padding: 20px;

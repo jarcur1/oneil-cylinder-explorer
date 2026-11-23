@@ -59,7 +59,7 @@ export const RESERVOIR_TARGETS = Object.freeze([
   Object.freeze({
     id: "stillwater-pavilion", name: "Water-management pavilion", kind: "public", layer: "surface",
     theta: reservoirS(-72) / RADIUS, y: reservoirY(-85), height: 0.05, range: 3,
-    hint: "From the reserve entrance, take the west path and enter the pavilion through its open south doorway. Its displays describe the water system; they are not interactive repair jobs.",
+    hint: "From the reserve entrance, take the west path and enter the pavilion through its open south doorway. Its displays describe the water system, and the survey drone console on the east side lets you press E to launch an aerial view.",
   }),
   Object.freeze({
     id: "stillwater-lookout", name: "Meridian-facing lookout", kind: "public", layer: "surface",

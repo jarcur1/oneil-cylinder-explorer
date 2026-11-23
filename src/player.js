@@ -765,11 +765,11 @@ export function createPlayer(camera, domElement, options = {}) {
     }
   }
 
-  function setEnabled(bool) {
+  function setEnabled(bool, { keepPointerLock = false } = {}) {
     enabled = !!bool;
     if (!enabled) {
       clearInput();
-      if (document.pointerLockElement === domElement) {
+      if (!keepPointerLock && document.pointerLockElement === domElement) {
         document.exitPointerLock();
       }
     }
