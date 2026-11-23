@@ -106,6 +106,8 @@ The Civic Tower's **80 m Meridian Gate** has two brass pylons above the unchange
 
 Two high-rises mark the south and east sides of the district: **Lantern Court** (103 m), with planted residential setbacks and pale balcony bands, and the **Meridian Exchange** (116 m), with offset volumes and metal fins. **Compass Court** uses a brass ring, dark stone and compass bearings to frame the turning armillary, with flush paving across the existing promenade.
 
+Follow the east housing lane south of the plaza to see Lantern Court's recessed, closed lobby entrance, layered stone jambs, and projecting window sills. The frontage is built from in-game geometry and generated textures.
+
 The plaza armillary's rings turn slowly on simulation time. Existing city visitors look around and check their belongings during stops; one visitor enters the library and sits to read, and the Skywalk observer raises binoculars while viewing the habitat. Mara's interaction anchor is unchanged. Pausing or opening the map freezes resident motion.
 
 ### Public library reading room
@@ -129,6 +131,8 @@ Ride **Line 02** from **Meridian South**, or choose **Visit Stillwater Reserve (
 From the Line 02 pad, take the paved connector east onto the entrance path. Walk north just beyond the guideway and look **high up and left** for the Gate and plaza ring. The west woodland lookout has an identification board and a second clear view: read the board, then turn north and look high to the left.
 
 The woodland mixes broad, irregular oak crowns, pale multi-stem birches, and tiered pines. Seeded groves mix mature trees and saplings with different heights, widths, and foliage colors; shrub thickets, ferns, and patchy leaf litter form the lower layers. Trunks are solid, foliage is walk-through, and the main walking routes remain clear. Geometry is static and instanced rather than spawning separate animated trees.
+
+On the west woodland path, continue north past the lookout turn and look west into the oak and birch grove for the close-up branches and broken canopy silhouettes. The path and trunk collision remain unchanged.
 
 The balancing basin holds a **0.4 m shallow water surface above the existing deck**. It is not an excavated lake or a swimming simulation: stepping off the bank lands on the deck beneath the water. The bank and lookout use solid curved geometry and three shallow steps; normal radial gravity still applies. A separate non-shadow-casting sunline feed lights this side without changing the existing cached sun shadow.
 

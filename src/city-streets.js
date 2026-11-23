@@ -667,8 +667,28 @@ export function createCityStreets(parent) {
   const hEastGroup = new THREE.Group();
   hEastGroup.name = "bldgHousingEast";
   buildingsGroup.add(hEastGroup);
-  addCivicBlock(hEastGroup, mats.concretePlinth, 48, -49, 22.5, 24.5, 0.5, 0);
-  addCivicBlock(hEastGroup, mats.housingEastFacade, 48, -49, 22, 24, 18.5, 0.5);
+  addCivicSolid(hEastGroup, mats.concretePlinth, obstacles, 48, -49, 22.5, 24.5, 0.5, 0);
+  // Keep the residence closed; cut a real shallow recess in its west wall.
+  addCivicSolid(hEastGroup, mats.housingEastFacade, obstacles, 48.35, -49, 21.3, 24, 18.5, 0.5);
+  function addWestBay(y, depth, height, base) {
+    const bay = addCivicSolid(hEastGroup, mats.housingEastFacade, obstacles, 37.35, y, 0.7, depth, height, base);
+    const { position, normal, uv } = bay.geometry.attributes;
+    const theta = 37 / RADIUS;
+    for (let i = 0; i < position.count; i++) {
+      if (normal.getX(i) * Math.cos(theta) + normal.getZ(i) * Math.sin(theta) > -0.99) continue;
+      // Keep the same window grid across all three pieces beside the portal.
+      const h = RADIUS - Math.hypot(position.getX(i), position.getZ(i));
+      uv.setXY(i, (position.getY(i) + 61) / 24, (h - 0.5) / 18.5);
+    }
+  }
+  // End the split at the atlas cell boundaries, so no pane is cut in half.
+  const openingDepth = 24 * 3 / 7;
+  const sideDepth = (24 - openingDepth) / 2;
+  const bayOffset = (openingDepth + sideDepth) / 2;
+  const openingTop = 19 - 6 * 18.5 / 8;
+  addWestBay(-49 - bayOffset, sideDepth, 18.5, 0.5);
+  addWestBay(-49 + bayOffset, sideDepth, 18.5, 0.5);
+  addWestBay(-49, openingDepth, 19 - openingTop, openingTop);
   const lanternCourt = new THREE.Group();
   lanternCourt.name = "meridian_lantern_court";
   hEastGroup.add(lanternCourt);
@@ -710,27 +730,119 @@ export function createCityStreets(parent) {
     height: 0.35,
     base: 3.4,
   });
-  // A stone portal frames the closed residential display under the canopy.
-  for (const y of [-51.65, -46.35]) {
-    addCivicBlock(hEastGroup, mats.limestone, 37, y, 0.22, 0.28, 3.4);
+  const frontage = new THREE.Group();
+  frontage.name = "lantern_court_frontage";
+  hEastGroup.add(frontage);
+
+  // Locally drawn coursing gives the stone a little scale at walking distance.
+  const stoneCanvas = document.createElement("canvas");
+  stoneCanvas.width = stoneCanvas.height = 128;
+  const stoneContext = stoneCanvas.getContext("2d");
+  stoneContext.fillStyle = "#c9bdab";
+  stoneContext.fillRect(0, 0, 128, 128);
+  stoneContext.strokeStyle = "rgba(87, 78, 67, 0.22)";
+  stoneContext.lineWidth = 1;
+  for (let row = 0; row < 8; row++) {
+    const y = row * 16;
+    stoneContext.beginPath();
+    stoneContext.moveTo(0, y + 0.5);
+    stoneContext.lineTo(128, y + 0.5);
+    for (let x = (row % 2) * 16; x < 128; x += 32) {
+      stoneContext.moveTo(x + 0.5, y);
+      stoneContext.lineTo(x + 0.5, y + 16);
+    }
+    stoneContext.stroke();
   }
-  addCivicBlock(hEastGroup, mats.limestone, 37, -49, 0.22, 5.6, 0.22, 3.18);
-  addSurfaceSign(
-    hEastGroup,
-    "LANTERN COURT\nHABITAT STAFF RESIDENCES",
-    35.5,
-    -49,
-    4.4,
-    3.8,
-  );
-  obstacles.push({
-    theta: 48 / RADIUS,
-    y: -49,
-    width: 22,
-    depth: 24,
-    height: 19,
-    base: 0,
+  const stoneTexture = new THREE.CanvasTexture(stoneCanvas);
+  stoneTexture.colorSpace = THREE.SRGBColorSpace;
+  const entryStone = new THREE.MeshStandardMaterial({ map: stoneTexture, roughness: 0.88 });
+  // Stone infill surrounds the actual entry inside the wider atlas opening.
+  const infillDepth = openingDepth / 2 - 3.7;
+  for (const side of [-1, 1]) {
+    addCivicSolid(frontage, entryStone, obstacles, 37.43,
+      -49 + side * (3.7 + infillDepth / 2), 0.5, infillDepth, 3.4, 0.5);
+  }
+  addCivicSolid(frontage, entryStone, obstacles, 37.43, -49, 0.5, openingDepth,
+    openingTop - 3.9, 3.9);
+  const glassCanvas = document.createElement("canvas");
+  glassCanvas.width = 256;
+  glassCanvas.height = 128;
+  const glassContext = glassCanvas.getContext("2d");
+  const reflection = glassContext.createLinearGradient(0, 0, 130, 128);
+  reflection.addColorStop(0, "#827254");
+  reflection.addColorStop(0.47, "#3f5050");
+  reflection.addColorStop(1, "#16282b");
+  glassContext.fillStyle = reflection;
+  glassContext.fillRect(0, 0, 256, 128);
+  glassContext.fillStyle = "#bda276";
+  glassContext.fillRect(14, 12, 228, 3);
+  glassContext.fillStyle = "#252f2a";
+  for (const x of [33, 218]) {
+    glassContext.fillRect(x - 6, 105, 12, 23);
+    glassContext.beginPath();
+    glassContext.ellipse(x, 94, 9, 20, 0.3, 0, Math.PI * 2);
+    glassContext.fill();
+  }
+  const glassTexture = new THREE.CanvasTexture(glassCanvas);
+  glassTexture.colorSpace = THREE.SRGBColorSpace;
+  const lobbyGlass = new THREE.MeshStandardMaterial({
+    map: glassTexture, roughness: 0.36, metalness: 0.12,
   });
+
+  // Small projected sills follow the atlas windows, instead of covering them.
+  const sillRows = [6, 7];
+  const sillColumns = [0, 1, 5, 6];
+  const sills = new THREE.InstancedMesh(new THREE.BoxGeometry(1, 1, 1), mats.limestone,
+    sillRows.length * sillColumns.length);
+  const frontageMatrix = new THREE.Matrix4();
+  let sillIndex = 0;
+  for (const row of sillRows) {
+    for (const col of sillColumns) {
+      const y = -61 + (col + 0.5) * 24 / 7;
+      const h = 19 - (row + 0.78) * 18.5 / 8;
+      setSurfaceMatrix(frontageMatrix, 36.97 / RADIUS, y, h, 0.14, 2.27, 0.09);
+      sills.setMatrixAt(sillIndex++, frontageMatrix);
+    }
+  }
+  frontage.add(sills);
+
+  // Nested jambs occupy the opening and the canopy footprint, not the lane.
+  for (const [s, width, offset, depth] of [
+    [37.12, 0.24, 3.5, 0.4],
+    [37.38, 0.28, 3.12, 0.3],
+    [37.60, 0.16, 2.82, 0.22],
+  ]) {
+    for (const side of [-1, 1]) {
+      addCivicSolid(frontage, entryStone, obstacles, s, -49 + side * offset, width, depth, 3.18, 0.5);
+    }
+    addCivicBlock(frontage, entryStone, s, -49, width, offset * 2 + depth, 0.22, 3.68);
+  }
+  // Closed glazing sits at the back of the recess, with a framed double door
+  // and opaque warm side lights suggesting a lobby rather than an open interior.
+  addCivicSolid(frontage, lobbyGlass, obstacles, 37.68, -49, 0.06, 5.5, 3.12, 0.5);
+  for (const y of [-51.7, -50.35, -49, -47.65, -46.3]) {
+    addCivicBlock(frontage, mats.bronzeMetal, 37.61, y, 0.1, 0.09, 3.12, 0.5);
+  }
+  addCivicBlock(frontage, mats.bronzeMetal, 37.61, -49, 0.1, 5.5, 0.1, 2.75);
+  addCivicBlock(frontage, mats.limestone, 37.48, -49, 0.4, 5.7, 0.12, 0.5);
+  for (const y of [-49.18, -48.82]) {
+    addCivicBlock(frontage, mats.brassAccent, 37.54, y, 0.1, 0.07, 0.55, 1.35);
+  }
+  const signCanvas = document.createElement("canvas");
+  signCanvas.width = 512;
+  signCanvas.height = 48;
+  const sign = signCanvas.getContext("2d");
+  sign.fillStyle = "#223934";
+  sign.fillRect(0, 0, 512, 48);
+  sign.fillStyle = "#e6d8ad";
+  sign.font = "600 36px system-ui";
+  sign.textAlign = "center";
+  sign.textBaseline = "middle";
+  sign.fillText("LANTERN COURT", 256, 24);
+  const signTexture = new THREE.CanvasTexture(signCanvas);
+  signTexture.colorSpace = THREE.SRGBColorSpace;
+  addOrientedPanel(frontage, new THREE.MeshBasicMaterial({ map: signTexture }),
+    surfacePos(34.57 / RADIUS, -49, 3.575), "west", 4.7, 0.32);
 
   // ------------------------------------------
   // 6. Meridian Exchange: offset commercial volumes on the existing parcel
@@ -851,7 +963,6 @@ export function createCityStreets(parent) {
     [commGroup, exchangeDisplay, "cityExchangeDisplayNorth", 83, 0, 2.2, "west", 4.8, 2.4],
     [hNorthGroup, residentialDisplay, "cityResidentialEntranceNorth", -31, 65, 2.05, "east", 4.8, 2.2],
     [hSouthGroup, residentialDisplay, "cityResidentialEntranceSouth", -27.5, -62, 2.05, "east", 4.8, 2.2],
-    [hEastGroup, residentialDisplay, "cityResidentialEntranceEast", 37, -49, 2.05, "west", 4.8, 2.2],
   ];
   for (const [group, material, name, s, y, h, facing, width, height] of displays) {
     const panel = addOrientedPanel(
