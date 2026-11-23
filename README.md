@@ -136,7 +136,15 @@ On the west woodland path, continue north past the lookout turn and look west in
 
 The balancing basin holds a **0.4 m shallow water surface above the existing deck**. It is not an excavated lake or a swimming simulation: stepping off the bank lands on the deck beneath the water. The bank and lookout use solid curved geometry and three shallow steps; normal radial gravity still applies. A separate non-shadow-casting sunline feed lights this side without changing the existing cached sun shadow.
 
-On the **G** map, select **Stillwater shoreline**, **Water-management pavilion**, or **Meridian-facing lookout** for local access guidance. These are public, unsaved waypoint targets, not new discoveries or jobs. The pavilion's displays and equipment are descriptive scenery. Return by Line 02 or the existing menu jumps.
+On the **G** map, select **Stillwater shoreline**, **Water-management pavilion**, or **Meridian-facing lookout** for local access guidance. These are public, unsaved waypoint targets, not new discoveries or jobs. Return by Line 02 or the existing menu jumps.
+
+### Stillwater survey drone
+
+Enter the water-management pavilion through its south doorway and press **E** at the signed survey console. The drone starts outside above the reserve; your character stays at the console.
+
+- **WASD** moves horizontally, **Space** climbs toward the axis, **Q** descends toward the hull, and **Shift** boosts.
+- Look with the mouse, drag without mouse capture, or use the **arrow keys**. Climb for a wide view of Stillwater and Meridian.
+- **R** or **Return to pavilion** ends the flight. Pausing or opening the map also returns you to the console. Flights do not award discoveries or change your save.
 
 ## Beneath Meridian
 

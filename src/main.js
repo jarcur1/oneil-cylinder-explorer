@@ -1,6 +1,6 @@
 import * as THREE from "three";
 import "./style.css";
-import { RADIUS, LENGTH, GRAVITY, VIEW_DISTANCE } from "./habitat.js";
+import { RADIUS, LENGTH, GRAVITY, VIEW_DISTANCE, gravityAtHeight } from "./habitat.js";
 import { createWorld } from "./world.js";
 import { createPlayer } from "./player.js";
 import { DISTRICT_NAME, inDistrict } from "./district-layout.js";
@@ -17,6 +17,8 @@ import { LANDMARKS } from "./landmarks.js";
 import { createNavigation } from "./navigation.js";
 import { createHabitatMap } from "./habitat-map.js";
 import { createWaypoint } from "./waypoint.js";
+import { canLaunchDrone } from "./drone-layout.js";
+import { createSurveyDrone } from "./survey-drone.js";
 import {
   wrappedDeltaTheta,
   horizontalDistance,
@@ -82,6 +84,9 @@ try {
     soundBtn: $("sound"),
     loading: $("loading"),
     crosshair: $("crosshair"),
+    droneHud: $("drone-hud"),
+    droneHeight: $("drone-height"),
+    droneReturn: $("drone-return"),
     compactPhysics: $("compact-physics"),
     telemetry: $("telemetry"),
     position: $("position"),
@@ -145,10 +150,15 @@ try {
     0.08,
     VIEW_DISTANCE,
   );
+  const droneCamera = new THREE.PerspectiveCamera(camera.fov, camera.aspect, camera.near, camera.far);
   scene.add(camera);
   const saveStore = createSaveStore();
   const saved = saveStore.load(LANDMARKS.map((stop) => stop.id));
   const world = createWorld(scene, camera, saved);
+  const drone = createSurveyDrone(droneCamera, world.obstacles);
+  const droneState = {};
+  let flyingDrone = false;
+  let droneDrag = null;
   const { delivery, maintenance, sunline, residents, trams } = world;
   const tramByLineId = new Map(trams.map((tram) => [tram.lineId, tram]));
   const tramStops = new Map(
@@ -395,7 +405,48 @@ try {
     ui.viewport.classList.remove("lift-travel");
   }
 
+  function exitDrone(resumePlayer = true) {
+    if (!flyingDrone) return;
+    flyingDrone = false;
+    drone.clearInput();
+    droneDrag = null;
+    setHidden(ui.droneHud, true);
+    setHidden(ui.crosshair, !playing);
+    updateFooter(playerState);
+    setHidden(ui.mission, !playing);
+    setHidden(ui.jobStack, !playing);
+    setHidden(ui.telemetry, !playing);
+    setHidden(ui.compactPhysics, !playing);
+    if (resumePlayer && playing && !fatalError) {
+      player.setEnabled(true);
+      delivery.setActive(true);
+      updateHUD();
+    }
+  }
+
+  function launchDrone() {
+    player.setEnabled(false, { keepPointerLock: true });
+    delivery.setActive(false);
+    droneDrag = null;
+    drone.start();
+    flyingDrone = true;
+    setText(ui.footerRight, "SURVEY DRONE · R TO RETURN TO PAVILION");
+    setText(ui.area, "STILLWATER · SURVEY LINK");
+    setAttr(ui.gravity, "title", "Apparent gravity at the drone's height.");
+    setHidden(ui.mission, true);
+    setHidden(ui.jobStack, true);
+    setHidden(ui.telemetry, true);
+    setHidden(ui.compactPhysics, true);
+    setHidden(ui.interaction, true);
+    setHidden(ui.inventory, true);
+    waypointMarker.hide();
+    setHidden(ui.crosshair, true);
+    setHidden(ui.droneHud, false);
+    updateDroneHUD();
+  }
+
   function pause(options) {
+    exitDrone(false);
     if (fatalError) {
       mapReturnMode = null;
       mapReturnFocus = null;
@@ -457,6 +508,7 @@ try {
 
   function visitEndcap() {
     if (fatalError || mapOpen || habitatMap.isOpen()) return;
+    exitDrone();
     cancelPendingTransfer();
     closeDialogue();
     player.teleport(ENDCAP_ARRIVAL);
@@ -465,6 +517,7 @@ try {
 
   function visitCity() {
     if (fatalError || mapOpen || habitatMap.isOpen()) return;
+    exitDrone();
     cancelPendingTransfer();
     closeDialogue();
     player.teleport(CITY_ARRIVAL);
@@ -473,6 +526,7 @@ try {
 
   function visitReservoir() {
     if (fatalError || mapOpen || habitatMap.isOpen()) return;
+    exitDrone();
     cancelPendingTransfer();
     closeDialogue();
     player.teleport(RESERVOIR_ARRIVAL);
@@ -692,6 +746,12 @@ try {
     ui.landmarks.appendChild(row);
     return { row, distance };
   });
+
+  function updateDroneHUD() {
+    drone.getState(droneState);
+    setText(ui.droneHeight, `${droneState.height.toFixed(1)} m`);
+    setText(ui.gravity, `${(gravityAtHeight(droneState.height) / GRAVITY).toFixed(3)} G`);
+  }
 
   function updateHUD() {
     const state = player.getState(playerState);
@@ -921,7 +981,8 @@ try {
           job.prompt ||
           reaction?.prompt ||
           lift?.prompt ||
-          (tramAction?.kind === "inspect" ? tramAction.prompt : null);
+          (tramAction?.kind === "inspect" ? tramAction.prompt : null) ||
+          (canLaunchDrone(state) ? "Launch survey drone" : null);
       }
     }
     const hideInteraction =
@@ -956,6 +1017,50 @@ try {
   ui.pauseBtn.addEventListener("click", pause);
   ui.mapBtn.addEventListener("click", toggleMap);
   ui.soundBtn.addEventListener("click", toggleSound);
+  ui.droneReturn.addEventListener("click", () => exitDrone());
+  window.addEventListener("keydown", (event) => {
+    if (!flyingDrone) return;
+    if (event.code === "KeyR" && !event.repeat) {
+      event.preventDefault();
+      event.stopImmediatePropagation();
+      exitDrone();
+      return;
+    }
+    if (event.target === ui.droneReturn && event.code === "Space") return;
+    if (drone.key(event.code, true)) {
+      event.preventDefault();
+      event.stopImmediatePropagation();
+    }
+  }, true);
+  window.addEventListener("keyup", (event) => {
+    if (flyingDrone && event.target === ui.droneReturn && event.code === "Space") {
+      drone.key(event.code, false);
+      return;
+    }
+    if (flyingDrone && drone.key(event.code, false)) {
+      event.preventDefault();
+      event.stopImmediatePropagation();
+    }
+  }, true);
+  renderer.domElement.addEventListener("pointerdown", (event) => {
+    if (flyingDrone && document.pointerLockElement !== renderer.domElement && event.button === 0) {
+      droneDrag = { x: event.clientX, y: event.clientY };
+    }
+    if (flyingDrone) event.stopImmediatePropagation();
+  }, true);
+  window.addEventListener("pointermove", (event) => {
+    if (!flyingDrone) return;
+    if (document.pointerLockElement === renderer.domElement) {
+      drone.look(event.movementX || 0, event.movementY || 0);
+    } else if (droneDrag) {
+      drone.look(event.clientX - droneDrag.x, event.clientY - droneDrag.y);
+      droneDrag.x = event.clientX;
+      droneDrag.y = event.clientY;
+    }
+    event.stopImmediatePropagation();
+  }, true);
+  window.addEventListener("pointerup", () => { droneDrag = null; }, true);
+  window.addEventListener("pointercancel", () => { droneDrag = null; }, true);
   ui.resetBtn.addEventListener("click", () => {
     if (fatalError || mapOpen || habitatMap.isOpen()) return;
     cancelPendingTransfer();
@@ -1017,6 +1122,7 @@ try {
       return;
     }
     if (mapOpen || habitatMap.isOpen()) return;
+    if (flyingDrone) return;
     if (
       playing && !event.repeat && !event.ctrlKey && !event.metaKey && !event.altKey &&
       (event.code === "KeyH" || event.code === "KeyJ") &&
@@ -1148,6 +1254,8 @@ try {
             : "Doors closing · wait for the next service";
         showToast(`${stop.name} · ${service} · To ${destination.name}`, 8);
         updateHUD();
+      } else if (!activeDialogue && canLaunchDrone(state)) {
+        launchDrone();
       }
     } catch (error) {
       handleFatalError(error);
@@ -1158,6 +1266,7 @@ try {
     (event) => {
       if (
         !playing ||
+        flyingDrone ||
         mapOpen ||
         document.pointerLockElement !== renderer.domElement
       )
@@ -1194,6 +1303,8 @@ try {
   window.addEventListener("resize", () => {
     camera.aspect = window.innerWidth / window.innerHeight;
     camera.updateProjectionMatrix();
+    droneCamera.aspect = camera.aspect;
+    droneCamera.updateProjectionMatrix();
     renderer.setPixelRatio(Math.min(window.devicePixelRatio, 1.75));
     renderer.setSize(window.innerWidth, window.innerHeight);
     fitDialogueHUD();
@@ -1282,7 +1393,8 @@ try {
         cancelPendingTransfer();
         updateHUD();
       }
-      player.update(pendingTransfer ? 0 : dt);
+      if (flyingDrone) drone.update(dt);
+      else player.update(pendingTransfer ? 0 : dt);
       player.getState(playerState);
       world.update(dt, elapsed, playerState);
       try {
@@ -1293,7 +1405,8 @@ try {
       camera.layers.set(playerState.height < -1 ? 1 : 0);
       hudTime += dt;
       if (hudTime >= 0.1) {
-        updateHUD();
+        if (flyingDrone) updateDroneHUD();
+        else updateHUD();
         updateSoundControl();
         hudTime = 0;
       }
@@ -1301,7 +1414,7 @@ try {
       handleFatalError(error);
       return;
     }
-    if (!fatalError) renderer.render(scene, camera);
+    if (!fatalError) renderer.render(scene, flyingDrone ? droneCamera : camera);
   }
 
   for (const tram of trams) tram.update(0);
