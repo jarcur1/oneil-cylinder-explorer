@@ -16,6 +16,7 @@ import { applyAtmosphere } from "./atmosphere.js";
 import { createDistrictLighting } from "./district-lighting.js";
 import { createCityStreets } from "./city-streets.js";
 import { createCityTower } from "./city-tower.js";
+import { createMeridianMarket } from "./meridian-market.js";
 import { inCity } from "./city-layout.js";
 import { createMaintenance } from "./maintenance.js";
 import { createServiceLevel } from "./service-level.js";
@@ -26,6 +27,7 @@ import { STILLWATER_TRAM_LINE, inStillwaterTramCorridor } from "./tram-layout.js
 import { LANDMARKS } from "./landmarks.js";
 import { wrappedDeltaTheta } from "./cylinder-math.js";
 import { createReservoir } from "./reservoir.js";
+import { createStillwaterCare } from "./stillwater-care.js";
 import { inReservoir } from "./reservoir-layout.js";
 
 // Deterministic PRNG (Mulberry32)
@@ -859,28 +861,32 @@ export function createWorld(scene, camera, saved = {}) {
 
   const village = createVillage(greenwayGroup);
   const farm = createFarm(greenwayGroup);
-  const residents = createResidents(districtGroup);
   const delivery = createDelivery(districtGroup, camera, saved.deliveryPhase, saved.supplyPhase, saved.plantingPhase);
   const cityStreets = createCityStreets(meridianGroup);
   const cityTower = createCityTower(meridianGroup);
+  const meridianMarket = createMeridianMarket(meridianGroup);
   const maintenance = createMaintenance(districtGroup, saved.maintenancePhase);
   const service = createServiceLevel(meridianGroup);
   const tram = createTram(districtGroup);
   const stillwaterTram = createTram(districtGroup, STILLWATER_TRAM_LINE);
+  const residents = createResidents(districtGroup, stillwaterTram);
   const trams = Object.freeze([tram, stillwaterTram]);
   const reservoir = createReservoir(districtGroup);
+  const stillwaterCare = createStillwaterCare(districtGroup);
   obstacles.push(
     ...copyTranslatedObstacles(village.obstacles, GREENWAY_PLACEMENT),
     ...copyTranslatedObstacles(farm.obstacles, GREENWAY_PLACEMENT),
     ...delivery.obstacles,
     ...copyTranslatedObstacles(cityStreets.obstacles, MERIDIAN_PLACEMENT),
     ...copyTranslatedObstacles(cityTower.obstacles, MERIDIAN_PLACEMENT),
+    ...copyTranslatedObstacles(meridianMarket.obstacles, MERIDIAN_PLACEMENT),
     ...maintenance.obstacles,
     ...copyTranslatedObstacles(service.obstacles, MERIDIAN_PLACEMENT),
     ...sunline.obstacles,
     ...tram.obstacles,
     ...stillwaterTram.obstacles,
     ...reservoir.obstacles,
+    ...stillwaterCare.obstacles,
     // The living surface is a deck, not the outermost pressure-hull floor.
     // Its underside stays solid above the enclosed service spaces.
     {

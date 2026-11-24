@@ -110,6 +110,8 @@ Follow the east housing lane south of the plaza to see Lantern Court's recessed,
 
 The plaza armillary's rings turn slowly on simulation time. Existing city visitors look around and check their belongings during stops; one visitor enters the library and sits to read, and the Skywalk observer raises binoculars while viewing the habitat. Mara's interaction anchor is unchanged. Pausing or opening the map freezes resident motion.
 
+From **Meridian South**, follow the paved path north toward Lantern Court to reach **Meridian Harvest**, **Axle & Spanner**, and the **Sunline Roastery** terrace. When Line 02 docks, visitors waiting by the pad set off for the market. The shops and routines are scenery, not new jobs or save fields.
+
 ### Public library reading room
 
 Track **Library reading room** on the map, then enter through the central doorway in the library's east portico, west of the promenade. Walk straight in without pressing **E**. Shelves, reading tables and chairs furnish the ground floor; wall exhibits explain spin gravity, the sunline, and habitat life-support systems. The floor, walls, ceiling, and major furniture are solid. Upper archives remain closed.
@@ -133,6 +135,8 @@ From the Line 02 pad, take the paved connector east onto the entrance path. Walk
 The woodland mixes broad, irregular oak crowns, pale multi-stem birches, and tiered pines. Seeded groves mix mature trees and saplings with different heights, widths, and foliage colors; shrub thickets, ferns, and patchy leaf litter form the lower layers. Trunks are solid, foliage is walk-through, and the main walking routes remain clear. Geometry is static and instanced rather than spawning separate animated trees.
 
 On the west woodland path, continue north past the lookout turn and look west into the oak and birch grove for the close-up branches and broken canopy silhouettes. The path and trunk collision remain unchanged.
+
+Look just west of the pavilion approach for the groundskeeper's potting shelter and seedling trays. A couple of walkers use the entrance and woodland paths; the shore stays quiet.
 
 The balancing basin holds a **0.4 m shallow water surface above the existing deck**. It is not an excavated lake or a swimming simulation: stepping off the bank lands on the deck beneath the water. The bank and lookout use solid curved geometry and three shallow steps; normal radial gravity still applies. A separate non-shadow-casting sunline feed lights this side without changing the existing cached sun shadow.
 
