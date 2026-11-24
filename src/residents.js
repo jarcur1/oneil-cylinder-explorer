@@ -4,9 +4,11 @@ import {
   GREENWAY_PLACEMENT,
   MERIDIAN_PLACEMENT,
 } from "./habitat.js";
+import { createYPlacement } from "./district-placement.js";
 import { wrappedDeltaTheta, horizontalDistance } from "./cylinder-math.js";
 import { CARETAKER } from "./maintenance-layout.js";
 import { LIBRARY_LAYOUT } from "./library-layout.js";
+import { STILLWATER_TRAM_STOPS } from "./tram-layout.js";
 
 // =============================================================================
 // Ambient Residents of Greenway and Meridian Civic District
@@ -1193,7 +1195,7 @@ function buildResident(cfg, residentsGroup) {
       : RESIDENT_ROUTES[cfg.routeKey]?.height || 0;
   root.userData.district = cfg.static
     ? cfg.district || "meridian"
-    : RESIDENT_ROUTES[cfg.routeKey]?.district || null;
+    : (cfg.route || RESIDENT_ROUTES[cfg.routeKey])?.district || null;
   residentsGroup.add(root);
 
   // Heading rotates around local Z (surface normal) to face motion direction
@@ -1419,6 +1421,10 @@ function buildResident(cfg, residentsGroup) {
       heading,
       body,
       torso,
+      head,
+      satchel,
+      briefcase,
+      poseElapsed: 0,
       leftThigh,
       rightThigh,
       leftShin,
@@ -1430,8 +1436,8 @@ function buildResident(cfg, residentsGroup) {
     };
   }
 
-  const route = RESIDENT_ROUTES[cfg.routeKey];
-  const placement = DISTRICT_PLACEMENTS[route?.district];
+  const route = cfg.route || RESIDENT_ROUTES[cfg.routeKey];
+  const placement = cfg.placement || DISTRICT_PLACEMENTS[route?.district];
   if (!placement) {
     throw new Error(
       `Unknown district "${route?.district}" for resident route "${cfg.routeKey}"`,
@@ -1502,16 +1508,614 @@ const NIA_DIALOGUES = Object.freeze({
 });
 
 // -----------------------------------------------------------------------------
+// Daily Stillwater & Meridian Actors
+// -----------------------------------------------------------------------------
+const STILLWATER_OFFSET_S = Math.PI * RADIUS;
+const STILLWATER_PLACEMENT = createYPlacement(0, 450);
+const MERIDIAN_SOUTH_STOP =
+  STILLWATER_TRAM_STOPS.find((stop) => stop.id === "tram-meridian-south") ??
+  STILLWATER_TRAM_STOPS[0];
+const MERIDIAN_SOUTH_STOP_ID = MERIDIAN_SOUTH_STOP.id;
+const MERIDIAN_SOUTH_PAD_S = MERIDIAN_SOUTH_STOP.theta * RADIUS;
+const MERIDIAN_SOUTH_PAD_LOCAL_Y = MERIDIAN_PLACEMENT.toLocalY(
+  MERIDIAN_SOUTH_STOP.y,
+);
+
+function createStillwaterPath(points) {
+  const shifted = points.map((pt) =>
+    pt.heading !== undefined
+      ? { s: STILLWATER_OFFSET_S + pt.s, y: pt.y, heading: pt.heading }
+      : { s: STILLWATER_OFFSET_S + pt.s, y: pt.y },
+  );
+  return buildPath(shifted, 0);
+}
+
+function createPassengerRoute(
+  waitOffsetS,
+  waitOffsetY,
+  aisleCenterS,
+  aisleY,
+  dwellRadius,
+  dwellDuration,
+) {
+  const waitS = MERIDIAN_SOUTH_PAD_S + waitOffsetS;
+  const waitY = MERIDIAN_SOUTH_PAD_LOCAL_Y + waitOffsetY;
+  const approachLen = 0.75;
+  const turnRadius = 0.4;
+  const returnS = waitS + turnRadius * 2;
+  const connectorEntryS = MERIDIAN_SOUTH_PAD_S + 0.6;
+  const entryS = aisleCenterS - dwellRadius;
+  const points = [
+    { s: waitS, y: waitY, heading: 0 },
+    { s: waitS, y: MERIDIAN_SOUTH_PAD_LOCAL_Y + 3.7 },
+    { s: connectorEntryS, y: -111.5 },
+    { s: 20.4, y: -94.5 },
+    { s: 21.0, y: -91.5 },
+    { s: 21.0, y: -84.0 },
+  ];
+
+  if (Math.abs(entryS - 21.0) > 0.05) {
+    points.push(
+      { s: (21.0 + entryS) * 0.5, y: -83.4 },
+      { s: entryS, y: aisleY - 0.6 },
+    );
+  } else {
+    points.push({ s: entryS, y: aisleY - 0.6 });
+  }
+
+  points.push({ s: entryS, y: aisleY, heading: 0 });
+  for (let i = 1; i <= 4; i++) {
+    const angle = Math.PI - (i / 4) * (Math.PI * 0.5);
+    points.push({
+      s: aisleCenterS + dwellRadius * Math.cos(angle),
+      y: aisleY + dwellRadius * Math.sin(angle),
+      heading: Math.PI - angle,
+    });
+  }
+  const dwellPointIndex = points.length - 1;
+
+  for (let i = 1; i <= 4; i++) {
+    const angle = Math.PI * 0.5 - (i / 4) * (Math.PI * 0.5);
+    points.push({
+      s: aisleCenterS + dwellRadius * Math.cos(angle),
+      y: aisleY + dwellRadius * Math.sin(angle),
+      heading: Math.PI - angle,
+    });
+  }
+
+  const exitS = aisleCenterS + dwellRadius;
+  points.push(
+    { s: exitS, y: -83.1 },
+    { s: Math.min(22.2, aisleCenterS + dwellRadius * 0.7), y: -84.0 },
+    { s: 21.3, y: -86.5 },
+    { s: 21.2, y: -92.0 },
+    { s: MERIDIAN_SOUTH_PAD_S + 1.1, y: -112.0 },
+    { s: returnS, y: -115.0 },
+    { s: returnS, y: waitY - approachLen, heading: Math.PI },
+  );
+
+  for (let i = 1; i <= 5; i++) {
+    const angle = -(i / 6) * Math.PI;
+    points.push({
+      s: waitS + turnRadius + turnRadius * Math.cos(angle),
+      y: waitY - approachLen + turnRadius * Math.sin(angle),
+      heading: Math.PI - angle,
+    });
+  }
+
+  points.push({ s: waitS, y: waitY - approachLen, heading: 0 });
+
+  const path = buildPath(points, 0);
+  return {
+    district: "meridian",
+    height: 0,
+    speed: 1.25,
+    dwells: [{ distance: path.segments[dwellPointIndex].cumDist, duration: dwellDuration }],
+    path,
+  };
+}
+
+const DAILY_STILLWATER_WALKER_1_ROUTE = {
+  district: "stillwater",
+  height: 0,
+  speed: 1.15,
+  path: createStillwaterPath(
+    createLongitudinalStadiumPoints(1.5, 0.55, -115.0, -77.0, 12),
+  ),
+};
+
+const DAILY_STILLWATER_WALKER_2_ROUTE = {
+  district: "stillwater",
+  height: 0,
+  speed: 1.1,
+  path: createStillwaterPath(
+    createLongitudinalStadiumPoints(-99.0, 0.55, -66.0, -27.0, 12),
+  ),
+};
+
+const DAILY_PASSENGER_ROUTES = [
+  createPassengerRoute(2.1, -0.9, 21.8, -82.0, 0.8, 9.0),
+  createPassengerRoute(3.0, -0.1, 20.9, -82.8, 0.7, 10.5),
+  createPassengerRoute(3.9, 0.7, 20.2, -81.8, 0.7, 8.0),
+];
+
+const DAILY_RESIDENT_CONFIGS = [
+  {
+    id: "daily_groundkeeper",
+    role: "Stillwater Groundskeeper",
+    static: true,
+    dailyKind: "groundkeeper",
+    district: "stillwater",
+    s: STILLWATER_OFFSET_S - 83,
+    y: STILLWATER_PLACEMENT.toWorldY(-102.9),
+    height: 0,
+    heading: Math.PI,
+    skin: skinMats.bronze,
+    shirt: apparelMats.forestShirt,
+    pants: apparelMats.dungareeBrown,
+    shoes: apparelMats.mudBoot,
+    addAccessories(head, torso) {
+      const workCap = new THREE.Group();
+      workCap.name = "hat";
+      const crown = new THREE.Mesh(geoHatCapCrown, apparelMats.earthCap);
+      crown.position.set(0, -0.01, 0.12);
+      workCap.add(crown);
+      const visor = new THREE.Mesh(geoHatCapVisor, apparelMats.earthCap);
+      visor.position.set(0, 0.14, 0.08);
+      workCap.add(visor);
+      head.add(workCap);
+
+      const apron = new THREE.Group();
+      apron.name = "apron";
+      const bib = new THREE.Mesh(geoApron, apparelMats.canvasApron);
+      bib.position.set(0, 0.115, 0.08);
+      apron.add(bib);
+      const pocket = new THREE.Mesh(geoApronPocket, apparelMats.apronTrim);
+      pocket.position.set(0, 0.135, 0.12);
+      apron.add(pocket);
+      torso.add(apron);
+    },
+  },
+  {
+    id: "daily_stillwater_walker_1",
+    role: "Stillwater Visitor",
+    dailyKind: "walker",
+    route: DAILY_STILLWATER_WALKER_1_ROUTE,
+    placement: STILLWATER_PLACEMENT,
+    speed: DAILY_STILLWATER_WALKER_1_ROUTE.speed,
+    initialDist: 5.0,
+    skin: skinMats.olive,
+    shirt: apparelMats.skywalkTeal,
+    pants: apparelMats.khakiPants,
+    shoes: apparelMats.brownShoe,
+    addAccessories(head, torso) {
+      const strawHat = new THREE.Group();
+      strawHat.name = "hat";
+      const brim = new THREE.Mesh(geoHatStrawBrim, apparelMats.strawHat);
+      brim.position.set(0, 0, 0.11);
+      strawHat.add(brim);
+      const crown = new THREE.Mesh(geoHatStrawCrown, apparelMats.strawHat);
+      crown.position.set(0, 0, 0.16);
+      strawHat.add(crown);
+      head.add(strawHat);
+
+      const satchel = new THREE.Group();
+      satchel.name = "satchel";
+      const bag = new THREE.Mesh(geoSatchel, apparelMats.leatherBag);
+      bag.position.set(0.18, 0.02, -0.06);
+      satchel.add(bag);
+      torso.add(satchel);
+    },
+  },
+  {
+    id: "daily_stillwater_walker_2",
+    role: "Stillwater Woodland Stroller",
+    dailyKind: "walker",
+    route: DAILY_STILLWATER_WALKER_2_ROUTE,
+    placement: STILLWATER_PLACEMENT,
+    speed: DAILY_STILLWATER_WALKER_2_ROUTE.speed,
+    initialDist: 18.0,
+    skin: skinMats.fair,
+    shirt: apparelMats.burgundySweater,
+    pants: apparelMats.charcoalPants,
+    shoes: apparelMats.darkShoe,
+    addAccessories(head, torso) {
+      const beanie = new THREE.Group();
+      beanie.name = "hat";
+      const crown = new THREE.Mesh(geoBeanie, apparelMats.goldBeanie);
+      crown.position.set(0, 0, 0.13);
+      beanie.add(crown);
+      const pompom = new THREE.Mesh(geoBeaniePompom, apparelMats.goldBeanie);
+      pompom.position.set(0, 0, 0.22);
+      beanie.add(pompom);
+      head.add(beanie);
+
+      const scarf = new THREE.Mesh(geoScarf, apparelMats.tealScarf);
+      scarf.name = "scarf";
+      scarf.position.set(0, 0, 0.45);
+      torso.add(scarf);
+    },
+  },
+  {
+    id: "daily_meridian_vendor",
+    role: "Meridian Produce Vendor",
+    static: true,
+    dailyKind: "vendor",
+    district: "meridian",
+    s: 26,
+    y: MERIDIAN_PLACEMENT.toWorldY(-82),
+    height: 0,
+    heading: Math.PI * 0.5,
+    skin: skinMats.golden,
+    shirt: apparelMats.terracottaShirt,
+    pants: apparelMats.olivePants,
+    shoes: apparelMats.brownShoe,
+    addAccessories(head, torso) {
+      const strawHat = new THREE.Group();
+      strawHat.name = "hat";
+      const brim = new THREE.Mesh(geoHatStrawBrim, apparelMats.strawHat);
+      brim.position.set(0, 0, 0.11);
+      strawHat.add(brim);
+      const crown = new THREE.Mesh(geoHatStrawCrown, apparelMats.strawHat);
+      crown.position.set(0, 0, 0.16);
+      strawHat.add(crown);
+      head.add(strawHat);
+
+      const apron = new THREE.Group();
+      apron.name = "apron";
+      const bib = new THREE.Mesh(geoApron, apparelMats.canvasApron);
+      bib.position.set(0, 0.115, 0.08);
+      apron.add(bib);
+      const pocket = new THREE.Mesh(geoApronPocket, apparelMats.apronTrim);
+      pocket.position.set(0, 0.135, 0.12);
+      apron.add(pocket);
+      torso.add(apron);
+    },
+  },
+  {
+    id: "daily_meridian_passenger_1",
+    role: "Line 02 Market Visitor",
+    dailyKind: "passenger",
+    staggerDelay: 0.4,
+    route: DAILY_PASSENGER_ROUTES[0],
+    placement: MERIDIAN_PLACEMENT,
+    speed: DAILY_PASSENGER_ROUTES[0].speed,
+    initialDist: 0,
+    skin: skinMats.peach,
+    shirt: apparelMats.amberJacket,
+    pants: apparelMats.creamPants,
+    shoes: apparelMats.brownShoe,
+    addAccessories(head, torso) {
+      const beret = new THREE.Mesh(geoHatFedoraCrown, apparelMats.chocolateBeret);
+      beret.name = "hat";
+      beret.position.set(0, -0.02, 0.12);
+      beret.scale.set(1.1, 1.1, 0.7);
+      head.add(beret);
+
+      const satchel = new THREE.Group();
+      satchel.name = "satchel";
+      const bag = new THREE.Mesh(geoSatchel, apparelMats.leatherBag);
+      bag.position.set(0.18, 0.02, -0.06);
+      satchel.add(bag);
+      torso.add(satchel);
+    },
+  },
+  {
+    id: "daily_meridian_passenger_2",
+    role: "Line 02 Market Visitor",
+    dailyKind: "passenger",
+    staggerDelay: 1.8,
+    route: DAILY_PASSENGER_ROUTES[1],
+    placement: MERIDIAN_PLACEMENT,
+    speed: DAILY_PASSENGER_ROUTES[1].speed,
+    initialDist: 0,
+    skin: skinMats.olive,
+    shirt: apparelMats.slateJacket,
+    pants: apparelMats.formalPants,
+    shoes: apparelMats.darkShoe,
+    addAccessories(head, torso) {
+      const fedora = new THREE.Group();
+      fedora.name = "hat";
+      const brim = new THREE.Mesh(geoHatFedoraBrim, apparelMats.slateHat);
+      brim.position.set(0, 0.01, 0.11);
+      fedora.add(brim);
+      const crown = new THREE.Mesh(geoHatFedoraCrown, apparelMats.slateHat);
+      crown.position.set(0, 0.01, 0.17);
+      fedora.add(crown);
+      head.add(fedora);
+
+      const briefcase = new THREE.Mesh(geoBriefcase, apparelMats.leatherBag);
+      briefcase.name = "briefcase";
+      briefcase.position.set(0.08, 0.04, -0.28);
+      torso.add(briefcase);
+    },
+  },
+  {
+    id: "daily_meridian_passenger_3",
+    role: "Line 02 Market Visitor",
+    dailyKind: "passenger",
+    staggerDelay: 3.2,
+    route: DAILY_PASSENGER_ROUTES[2],
+    placement: MERIDIAN_PLACEMENT,
+    speed: DAILY_PASSENGER_ROUTES[2].speed,
+    initialDist: 0,
+    skin: skinMats.bronze,
+    shirt: apparelMats.plumJacket,
+    pants: apparelMats.twillPants,
+    shoes: apparelMats.darkShoe,
+    addAccessories(_head, torso) {
+      const scarf = new THREE.Mesh(geoScarf, apparelMats.lavenderScarf);
+      scarf.name = "scarf";
+      scarf.position.set(0, 0, 0.45);
+      torso.add(scarf);
+    },
+  },
+];
+
+function placeResidentOnSurface(res) {
+  const theta = res.sampleState.s / RADIUS;
+  const sinT = Math.sin(theta);
+  const cosT = Math.cos(theta);
+  const rFloor = RADIUS - res.height - FOOT_HEIGHT;
+
+  res.root.position.x = rFloor * sinT;
+  res.root.position.y = res.sampleState.y;
+  res.root.position.z = -rFloor * cosT;
+  res.root.rotation.y = -theta;
+  res.heading.rotation.z = -res.sampleState.heading;
+}
+
+function applyStandingPose(res) {
+  res.leftThigh.rotation.x = 0;
+  res.rightThigh.rotation.x = 0;
+  res.leftShin.rotation.x = 0;
+  res.rightShin.rotation.x = 0;
+  res.leftArm.rotation.x = 0;
+  res.rightArm.rotation.x = 0;
+  res.leftForearm.rotation.x = -0.18;
+  res.rightForearm.rotation.x = -0.18;
+  res.body.position.z = 0;
+  res.torso.rotation.x = 0;
+  res.torso.rotation.z = 0;
+  res.head.rotation.x = 0;
+  res.head.rotation.z = 0;
+}
+
+function applyWalkingGait(res) {
+  const swing = Math.sin(res.gaitPhase);
+  const gw = res.gaitWeight;
+
+  res.leftThigh.rotation.x = swing * 0.42 * gw;
+  res.rightThigh.rotation.x = -swing * 0.42 * gw;
+
+  res.leftShin.rotation.x = -Math.max(0, swing * 0.65) * gw;
+  res.rightShin.rotation.x = -Math.max(0, -swing * 0.65) * gw;
+
+  res.leftArm.rotation.x = -swing * 0.32 * gw;
+  res.rightArm.rotation.x = swing * 0.32 * gw;
+  res.leftForearm.rotation.x = -0.18 - Math.max(0, -swing * 0.15) * gw;
+  res.rightForearm.rotation.x = -0.18 - Math.max(0, swing * 0.15) * gw;
+
+  res.body.position.z = Math.abs(swing) * 0.035 * gw;
+  res.torso.rotation.z = swing * 0.04 * gw;
+}
+
+function advanceDwellCycle(res, safeDt) {
+  const dwell = res.dwells[res.dwellIndex];
+  const S_dist = SETTLE_DURATION * res.speed * SETTLE_DISTANCE_FACTOR;
+  const D_start =
+    (dwell.distance - S_dist + res.path.perimeter) % res.path.perimeter;
+
+  if (res.dwellState === "walking") {
+    const step = res.speed * safeDt;
+    if (
+      isDistanceCrossed(
+        res.distance,
+        res.distance + step,
+        D_start,
+        res.path.perimeter,
+      )
+    ) {
+      res.dwellState = "settling";
+      res.dwellElapsed = 0;
+      res.gaitWeight = 1;
+    } else {
+      res.distance += step;
+      res.gaitPhase =
+        (res.gaitPhase + (step / STRIDE_LENGTH) * Math.PI * 2) %
+        (Math.PI * 2);
+    }
+  }
+
+  if (res.dwellState === "settling") {
+    res.dwellElapsed += safeDt;
+    const u = Math.min(1, res.dwellElapsed / SETTLE_DURATION);
+    const w = 1 - (3 * u * u - 2 * u * u * u);
+    res.gaitWeight = w;
+    const step = res.speed * w * safeDt;
+    res.distance += step;
+    res.gaitPhase =
+      (res.gaitPhase + (step / STRIDE_LENGTH) * Math.PI * 2) %
+      (Math.PI * 2);
+    if (u >= 1) {
+      res.dwellState = "dwelling";
+      res.dwellElapsed = 0;
+      res.gaitWeight = 0;
+    }
+  } else if (res.dwellState === "dwelling") {
+    res.dwellElapsed += safeDt;
+    res.gaitWeight = 0;
+    if (res.dwellElapsed >= dwell.duration) {
+      res.dwellState = "resuming";
+      res.dwellElapsed = 0;
+    }
+  } else if (res.dwellState === "resuming") {
+    res.dwellElapsed += safeDt;
+    const u = Math.min(1, res.dwellElapsed / RESUME_DURATION);
+    const w = 3 * u * u - 2 * u * u * u;
+    res.gaitWeight = w;
+    const step = res.speed * w * safeDt;
+    res.distance += step;
+    res.gaitPhase =
+      (res.gaitPhase + (step / STRIDE_LENGTH) * Math.PI * 2) %
+      (Math.PI * 2);
+    if (u >= 1) {
+      res.dwellState = "walking";
+      res.dwellElapsed = 0;
+      res.gaitWeight = 1;
+      res.dwellIndex = (res.dwellIndex + 1) % res.dwells.length;
+    }
+  }
+}
+
+function applyDailyWorkPose(res) {
+  applyStandingPose(res);
+  const clock = res.poseElapsed;
+  if (res.cfg.dailyKind === "groundkeeper") {
+    const workA = Math.sin(clock * 2.1);
+    const workB = Math.sin(clock * 4.2);
+    res.torso.rotation.x = -0.14 - 0.05 * (0.5 + 0.5 * workB);
+    res.torso.rotation.z = 0.14 * workA;
+    res.head.rotation.x = -0.26 + 0.06 * workB;
+    res.head.rotation.z = -0.08 * workA;
+    res.leftArm.rotation.x = 0.42 + 0.18 * workA;
+    res.rightArm.rotation.x = 0.48 - 0.18 * workA;
+    res.leftArm.rotation.z = -0.12;
+    res.rightArm.rotation.z = 0.12;
+    res.leftForearm.rotation.x = 0.55 + 0.22 * workB;
+    res.rightForearm.rotation.x = 0.62 - 0.22 * workB;
+    return;
+  }
+
+  const reach = 0.5 - 0.5 * Math.cos(clock * 1.7);
+  const shift = Math.sin(clock * 0.85);
+  res.torso.rotation.x = -0.06 - 0.12 * reach;
+  res.torso.rotation.z = 0.16 * shift;
+  res.head.rotation.x = -0.12 - 0.14 * reach;
+  res.head.rotation.z = 0.14 * shift;
+  res.leftArm.rotation.x = 0.28 + 0.45 * reach;
+  res.rightArm.rotation.x = 0.34 + 0.42 * reach;
+  res.leftForearm.rotation.x = 0.45 + 0.48 * reach;
+  res.rightForearm.rotation.x = 0.5 + 0.44 * reach;
+}
+
+function advancePassengerTransition(res, dt, duration, accelerating) {
+  const untilEnd = Math.max(0, duration - res.dwellElapsed);
+  const consumed = Math.min(dt, untilEnd);
+  const prevU = res.dwellElapsed / duration;
+  res.dwellElapsed += consumed;
+  const u = Math.min(1, res.dwellElapsed / duration);
+  const smooth = 3 * u * u - 2 * u * u * u;
+  res.gaitWeight = accelerating ? smooth : 1 - smooth;
+  // Exact integral of the smoothstep speed curve so distance lands cleanly on the anchor.
+  const integral = accelerating
+    ? u ** 3 - 0.5 * u ** 4 - prevU ** 3 + 0.5 * prevU ** 4
+    : u - u ** 3 + 0.5 * u ** 4 - prevU + prevU ** 3 - 0.5 * prevU ** 4;
+  const step = res.speed * duration * integral;
+  res.distance = Math.min(res.path.perimeter, res.distance + step);
+  res.gaitPhase =
+    (res.gaitPhase + (step / STRIDE_LENGTH) * Math.PI * 2) % (Math.PI * 2);
+  return { completed: u >= 1, remaining: dt - consumed };
+}
+
+function advancePassengerReturning(res, dt) {
+  const { completed } = advancePassengerTransition(
+    res,
+    dt,
+    SETTLE_DURATION,
+    false,
+  );
+  if (completed) {
+    res.distance = 0;
+    res.gaitPhase = 0;
+    res.gaitWeight = 0;
+    res.dwellIndex = 0;
+    res.dwellState = "walking";
+    res.dwellElapsed = 0;
+    res.passengerState = "idle";
+  }
+}
+
+function advancePassengerActive(res, dt) {
+  res.poseElapsed += dt;
+  const settleDistance = SETTLE_DURATION * res.speed * SETTLE_DISTANCE_FACTOR;
+  const returnStart = res.path.perimeter - settleDistance;
+  if (
+    res.dwellState === "walking" &&
+    res.distance > res.dwells[0].distance &&
+    res.distance + res.speed * dt >= returnStart
+  ) {
+    const toReturnStart = Math.max(0, returnStart - res.distance);
+    const consumed = toReturnStart / res.speed;
+    res.distance = returnStart;
+    res.gaitPhase =
+      (res.gaitPhase + (toReturnStart / STRIDE_LENGTH) * Math.PI * 2) %
+      (Math.PI * 2);
+    res.gaitWeight = 1;
+    res.passengerState = "returning";
+    res.dwellElapsed = 0;
+    const remaining = dt - consumed;
+    if (remaining > 0) {
+      advancePassengerReturning(res, remaining);
+    }
+    return;
+  }
+  advanceDwellCycle(res, dt);
+}
+
+function advancePassengerDeparting(res, dt) {
+  const { completed, remaining } = advancePassengerTransition(
+    res,
+    dt,
+    RESUME_DURATION,
+    true,
+  );
+  if (completed) {
+    res.passengerState = "active";
+    res.dwellState = "walking";
+    res.dwellElapsed = 0;
+    res.gaitWeight = 1;
+    if (remaining > 0) {
+      advancePassengerActive(res, remaining);
+    }
+  }
+}
+
+// -----------------------------------------------------------------------------
 // Primary Export: createResidents
 // -----------------------------------------------------------------------------
-export function createResidents(parent) {
+export function createResidents(parent, stillwaterTram = null) {
   const residentsGroup = new THREE.Group();
   residentsGroup.name = "residents";
   parent.add(residentsGroup);
 
+  const hasStillwaterTram = Boolean(
+    stillwaterTram && typeof stillwaterTram.getStopStatus === "function",
+  );
   const residents = RESIDENT_CONFIGS.map((cfg) =>
     buildResident(cfg, residentsGroup),
   );
+  const dailyResidents = DAILY_RESIDENT_CONFIGS.map((cfg) => {
+    const actor = buildResident(cfg, residentsGroup);
+    if (cfg.dailyKind === "passenger") {
+      actor.passengerState = "idle";
+      actor.staggerRemaining = 0;
+      actor.gaitWeight = 0;
+      actor.root.visible = hasStillwaterTram;
+    }
+    return actor;
+  });
+  const tramStopSnapshot = {
+    stationId: null,
+    docked: false,
+    arrivalIn: Infinity,
+    departureIn: 0,
+    boardingOpen: false,
+    direction: 1,
+    destinationStationId: null,
+  };
+  let meridianSouthDockTriggered = false;
+
   const nia = residents.find((r) => r.cfg.id === "resident-square") || null;
   const reactionTarget = { s: 0, y: 0, height: 0 };
   const reactionView = {
@@ -1529,27 +2133,8 @@ export function createResidents(parent) {
       const res = residents[i];
 
       if (res.isStatic) {
-        const theta = res.sampleState.s / RADIUS;
-        const sinT = Math.sin(theta);
-        const cosT = Math.cos(theta);
-        const rFloor = RADIUS - res.height - FOOT_HEIGHT;
-
-        res.root.position.x = rFloor * sinT;
-        res.root.position.y = res.sampleState.y;
-        res.root.position.z = -rFloor * cosT;
-        res.root.rotation.y = -theta;
-        res.heading.rotation.z = -res.sampleState.heading;
-
-        res.leftThigh.rotation.x = 0;
-        res.rightThigh.rotation.x = 0;
-        res.leftShin.rotation.x = 0;
-        res.rightShin.rotation.x = 0;
-        res.leftArm.rotation.x = 0;
-        res.rightArm.rotation.x = 0;
-        res.leftForearm.rotation.x = -0.18;
-        res.rightForearm.rotation.x = -0.18;
-        res.body.position.z = 0;
-        res.torso.rotation.z = 0;
+        placeResidentOnSurface(res);
+        applyStandingPose(res);
         continue;
       }
 
@@ -1558,71 +2143,7 @@ export function createResidents(parent) {
         if (res.reading) {
           advanceLibraryReader(res, safeDt);
         } else if (res.dwells && res.dwells.length > 0) {
-          const dwell = res.dwells[res.dwellIndex];
-          const S_dist = SETTLE_DURATION * res.speed * SETTLE_DISTANCE_FACTOR;
-          const D_start =
-            (dwell.distance - S_dist + res.path.perimeter) % res.path.perimeter;
-
-          if (res.dwellState === "walking") {
-            const step = res.speed * safeDt;
-            if (
-              isDistanceCrossed(
-                res.distance,
-                res.distance + step,
-                D_start,
-                res.path.perimeter,
-              )
-            ) {
-              res.dwellState = "settling";
-              res.dwellElapsed = 0;
-              res.gaitWeight = 1;
-            } else {
-              res.distance += step;
-              res.gaitPhase =
-                (res.gaitPhase + (step / STRIDE_LENGTH) * Math.PI * 2) %
-                (Math.PI * 2);
-            }
-          }
-
-          if (res.dwellState === "settling") {
-            res.dwellElapsed += safeDt;
-            const u = Math.min(1, res.dwellElapsed / SETTLE_DURATION);
-            const w = 1 - (3 * u * u - 2 * u * u * u);
-            res.gaitWeight = w;
-            const step = res.speed * w * safeDt;
-            res.distance += step;
-            res.gaitPhase =
-              (res.gaitPhase + (step / STRIDE_LENGTH) * Math.PI * 2) %
-              (Math.PI * 2);
-            if (u >= 1) {
-              res.dwellState = "dwelling";
-              res.dwellElapsed = 0;
-              res.gaitWeight = 0;
-            }
-          } else if (res.dwellState === "dwelling") {
-            res.dwellElapsed += safeDt;
-            res.gaitWeight = 0;
-            if (res.dwellElapsed >= dwell.duration) {
-              res.dwellState = "resuming";
-              res.dwellElapsed = 0;
-            }
-          } else if (res.dwellState === "resuming") {
-            res.dwellElapsed += safeDt;
-            const u = Math.min(1, res.dwellElapsed / RESUME_DURATION);
-            const w = 3 * u * u - 2 * u * u * u;
-            res.gaitWeight = w;
-            const step = res.speed * w * safeDt;
-            res.distance += step;
-            res.gaitPhase =
-              (res.gaitPhase + (step / STRIDE_LENGTH) * Math.PI * 2) %
-              (Math.PI * 2);
-            if (u >= 1) {
-              res.dwellState = "walking";
-              res.dwellElapsed = 0;
-              res.gaitWeight = 1;
-              res.dwellIndex = (res.dwellIndex + 1) % res.dwells.length;
-            }
-          }
+          advanceDwellCycle(res, safeDt);
         } else {
           // Standard uninterrupted walking loop
           const step = res.speed * safeDt;
@@ -1640,41 +2161,13 @@ export function createResidents(parent) {
 
       // Sample path position and direction without allocations
       samplePath(res.path, res.distance, res.sampleState, res.placement);
-
-      const theta = res.sampleState.s / RADIUS;
-      const sinT = Math.sin(theta);
-      const cosT = Math.cos(theta);
-      const rFloor = RADIUS - res.height - FOOT_HEIGHT;
-
-      res.root.position.x = rFloor * sinT;
-      res.root.position.y = res.sampleState.y;
-      res.root.position.z = -rFloor * cosT;
-
-      res.root.rotation.y = -theta;
-      res.heading.rotation.z = -res.sampleState.heading;
-
-      // Articulated walking gait synchronized with travelled distance and smoothly damped on dwell
-      const swing = Math.sin(res.gaitPhase);
-      const gw = res.gaitWeight;
-
-      res.leftThigh.rotation.x = swing * 0.42 * gw;
-      res.rightThigh.rotation.x = -swing * 0.42 * gw;
-
-      res.leftShin.rotation.x = -Math.max(0, swing * 0.65) * gw;
-      res.rightShin.rotation.x = -Math.max(0, -swing * 0.65) * gw;
-
-      res.leftArm.rotation.x = -swing * 0.32 * gw;
-      res.rightArm.rotation.x = swing * 0.32 * gw;
-      res.leftForearm.rotation.x = -0.18 - Math.max(0, -swing * 0.15) * gw;
-      res.rightForearm.rotation.x = -0.18 - Math.max(0, swing * 0.15) * gw;
-
-      res.body.position.z = Math.abs(swing) * 0.035 * gw;
-      res.torso.rotation.z = swing * 0.04 * gw;
+      placeResidentOnSurface(res);
+      applyWalkingGait(res);
 
       if (res.district === "meridian") {
         // Existing gait damping also blends the library reader's supported
         // sitting pose. Other citizens retain their planted standing dwells.
-        const rest = 1 - gw;
+        const rest = 1 - res.gaitWeight;
         const clock = res.poseElapsed;
         const viewing = res.binoculars !== null;
         const scan = Math.sin(clock * 0.65) * (res.reading ? 0.06 : viewing ? 0.12 : 0.24);
@@ -1699,7 +2192,7 @@ export function createResidents(parent) {
             + 0.04 * Math.sin(thigh + shin) - 0.365 * Math.cos(thigh + shin);
           res.body.position.z += 0.035 - FOOT_HEIGHT * rest - footZ;
           res.torso.rotation.x = -0.08 * rest;
-          res.torso.rotation.z = swing * 0.04 * gw;
+          res.torso.rotation.z = Math.sin(res.gaitPhase) * 0.04 * res.gaitWeight;
           res.head.rotation.x = rest * (-0.66 + 0.015 * Math.sin(clock * 0.8));
           res.leftArm.rotation.x += 0.16 * rest;
           res.rightArm.rotation.x += 0.16 * rest;
@@ -1735,6 +2228,130 @@ export function createResidents(parent) {
         }
       }
     }
+
+    let meridianSouthDocked = false;
+    if (safeDt > 0 && hasStillwaterTram) {
+      const stopStatus = stillwaterTram.getStopStatus(
+        MERIDIAN_SOUTH_STOP_ID,
+        tramStopSnapshot,
+      );
+      meridianSouthDocked = Boolean(stopStatus?.docked);
+      if (!meridianSouthDocked) {
+        meridianSouthDockTriggered = false;
+      } else if (!meridianSouthDockTriggered) {
+        meridianSouthDockTriggered = true;
+        for (let i = 0; i < dailyResidents.length; i++) {
+          const res = dailyResidents[i];
+          if (res.cfg.dailyKind === "passenger" && res.passengerState === "idle") {
+            res.passengerState = "staggering";
+            res.staggerRemaining = res.cfg.staggerDelay;
+          }
+        }
+      }
+    }
+
+    for (let i = 0; i < dailyResidents.length; i++) {
+      const res = dailyResidents[i];
+      const kind = res.cfg.dailyKind;
+
+      if (kind === "groundkeeper" || kind === "vendor") {
+        if (safeDt > 0) res.poseElapsed += safeDt;
+        placeResidentOnSurface(res);
+        applyDailyWorkPose(res);
+        continue;
+      }
+
+      if (kind === "walker") {
+        if (safeDt > 0) {
+          const step = res.speed * safeDt;
+          res.distance += step;
+          res.gaitPhase =
+            (res.gaitPhase + (step / STRIDE_LENGTH) * Math.PI * 2) %
+            (Math.PI * 2);
+          res.gaitWeight = 1;
+          if (res.distance >= res.path.perimeter) {
+            res.distance %= res.path.perimeter;
+          }
+        }
+        samplePath(res.path, res.distance, res.sampleState, res.placement);
+        placeResidentOnSurface(res);
+        applyWalkingGait(res);
+        continue;
+      }
+
+      if (safeDt > 0) {
+        if (res.passengerState === "staggering") {
+          if (!meridianSouthDocked) {
+            res.passengerState = "idle";
+            res.staggerRemaining = 0;
+          } else {
+            res.staggerRemaining -= safeDt;
+            if (res.staggerRemaining <= 0) {
+              const overflowDt = -res.staggerRemaining;
+              res.staggerRemaining = 0;
+              res.passengerState = "departing";
+              res.distance = 0;
+              res.gaitPhase = 0;
+              res.gaitWeight = 0;
+              res.dwellIndex = 0;
+              res.dwellState = "walking";
+              res.dwellElapsed = 0;
+              res.poseElapsed = 0;
+              if (overflowDt > 0) {
+                advancePassengerDeparting(res, overflowDt);
+              }
+            }
+          }
+        } else if (res.passengerState === "departing") {
+          advancePassengerDeparting(res, safeDt);
+        } else if (res.passengerState === "active") {
+          advancePassengerActive(res, safeDt);
+        } else if (res.passengerState === "returning") {
+          advancePassengerReturning(res, safeDt);
+        }
+      }
+
+      samplePath(res.path, res.distance, res.sampleState, res.placement);
+      placeResidentOnSurface(res);
+      if (res.passengerState === "departing" || res.passengerState === "returning") {
+        applyWalkingGait(res);
+        res.torso.rotation.x = 0;
+        res.head.rotation.x = 0;
+        res.head.rotation.z = 0;
+      } else if (res.passengerState === "active") {
+        applyWalkingGait(res);
+        const rest = 1 - res.gaitWeight;
+        const clock = res.poseElapsed;
+        const scan = Math.sin(clock * 0.7) * 0.22;
+        const consult = 0.65 + 0.35 * Math.sin(clock * 0.9);
+        res.head.rotation.z = rest * scan;
+        res.head.rotation.x = rest * (-0.08 * consult);
+        res.torso.rotation.z += rest * scan * 0.16;
+        res.torso.rotation.x = rest * 0.015 * Math.sin(clock * 0.8);
+        if (res.satchel || res.briefcase) {
+          const reach = rest * consult;
+          res.rightArm.rotation.x += reach * 0.18;
+          res.rightForearm.rotation.x += reach * 0.68;
+          if (res.satchel) {
+            res.satchel.rotation.x = reach * 0.12;
+          } else {
+            res.briefcase.position.set(
+              0.08 + reach * 0.06,
+              0.04 + reach * 0.12,
+              -0.28 + reach * 0.08,
+            );
+            res.briefcase.rotation.x = reach * 0.22;
+          }
+        } else {
+          res.leftArm.rotation.x += rest * 0.08;
+          res.rightArm.rotation.x += rest * 0.14;
+          res.rightForearm.rotation.x += rest * 0.12 * consult;
+        }
+      } else {
+        applyStandingPose(res);
+      }
+    }
+
     if (nia) {
       reactionTarget.s = nia.sampleState.s;
       reactionTarget.y = nia.sampleState.y;
