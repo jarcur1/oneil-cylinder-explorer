@@ -279,17 +279,17 @@ test(`native intro arrival, public map targets, and pause-menu visit at ${viewpo
     expectArrival(arrival);
     await page.keyboard.press("KeyG");
     await expect(page.locator("#habitat-map")).toBeVisible();
-    const bounds = await page.locator("#habitat-map").evaluate((map) => {
+    const bounds = await page.locator("#habitat-map").evaluate((map, targetCount) => {
       const zones = map.querySelector(".map-zones-layer");
       if (![...zones.querySelectorAll("text")].some((el) => el.textContent === "Stillwater Reserve")) throw new Error("Reserve zone label missing");
       const pins = [...map.querySelectorAll('[data-marker-id^="stillwater-"] .map-pin-hit')].map((el) => ({ x: Number(el.getAttribute("cx")), y: Number(el.getAttribute("cy")) }));
-      if (pins.length !== 3) throw new Error("Reserve pins missing");
+      if (pins.length !== targetCount) throw new Error("Reserve pins missing");
       const candidates = [...zones.querySelectorAll("rect.map-zone-district")].map((rect) =>
         Object.fromEntries(["x", "y", "width", "height"].map((key) => [key, Number(rect.getAttribute(key))]))
       ).filter((rect) => pins.every(({ x, y }) => x >= rect.x && x <= rect.x + rect.width && y >= rect.y && y <= rect.y + rect.height));
       if (candidates.length !== 1) throw new Error("Expected one district zone containing reserve pins");
       return candidates[0];
-    });
+    }, RESERVOIR_TARGETS.length);
     let previousDestination = null;
     for (const destination of RESERVOIR_TARGETS) {
       const pin = await page.locator(`[data-marker-id="${destination.id}"] .map-pin-hit`).evaluate((el) => ({ x: Number(el.getAttribute("cx")), y: Number(el.getAttribute("cy")) }));

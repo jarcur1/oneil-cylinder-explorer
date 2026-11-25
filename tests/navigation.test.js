@@ -1060,4 +1060,7 @@ test("tram disembark guidance is scoped to the ridden line", () => {
   assert.deepEqual(axial.guidance, legacy.guidance);
   assert.equal(axial.guidance.theta, TRAM_THETA);
   assert.ok(TRAM_STOPS.some((stop) => stop.y === axial.guidance.y));
+  nav.select({ kind: "destination", id: "stillwater-lens" });
+  const lensRide = nav.getWaypoint({ ...rider, rideLineId: "line-02" }, {});
+  assert.equal(lensRide.guidance.name, `Disembark at ${STILLWATER_TRAM_STOPS[1].name}`);
 });

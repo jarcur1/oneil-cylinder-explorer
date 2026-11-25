@@ -19,6 +19,7 @@ import { createHabitatMap } from "./habitat-map.js";
 import { createWaypoint } from "./waypoint.js";
 import { canLaunchDrone } from "./drone-layout.js";
 import { createSurveyDrone } from "./survey-drone.js";
+import { OPTIC_VIEWS, canUseOptics, aimOptics } from "./stillwater-optics.js";
 import {
   wrappedDeltaTheta,
   horizontalDistance,
@@ -44,6 +45,10 @@ function showError(error) {
   }
   const pausePanel = $("pause-panel");
   if (pausePanel) pausePanel.hidden = true;
+  const opticsHud = $("optics-hud");
+  if (opticsHud) opticsHud.hidden = true;
+  const opticsReticle = $("optics-reticle");
+  if (opticsReticle) opticsReticle.hidden = true;
   $("error").hidden = false;
   $("error-message").textContent = error?.message || String(error);
   $("loading").textContent = "Habitat unavailable.";
@@ -87,6 +92,11 @@ try {
     droneHud: $("drone-hud"),
     droneHeight: $("drone-height"),
     droneReturn: $("drone-return"),
+    opticsReticle: $("optics-reticle"),
+    opticsHud: $("optics-hud"),
+    opticsTitle: $("optics-title"),
+    opticsCaption: $("optics-caption"),
+    opticsReturn: $("optics-return"),
     compactPhysics: $("compact-physics"),
     telemetry: $("telemetry"),
     position: $("position"),
@@ -151,6 +161,7 @@ try {
     VIEW_DISTANCE,
   );
   const droneCamera = new THREE.PerspectiveCamera(camera.fov, camera.aspect, camera.near, camera.far);
+  const opticsCamera = new THREE.PerspectiveCamera(camera.fov, camera.aspect, camera.near, camera.far);
   scene.add(camera);
   const saveStore = createSaveStore();
   const saved = saveStore.load(LANDMARKS.map((stop) => stop.id));
@@ -159,6 +170,8 @@ try {
   const droneState = {};
   let flyingDrone = false;
   let droneDrag = null;
+  let usingOptics = false;
+  let opticViewIndex = 0;
   const { delivery, maintenance, sunline, residents, trams } = world;
   const tramByLineId = new Map(trams.map((tram) => [tram.lineId, tram]));
   const tramStops = new Map(
@@ -445,8 +458,103 @@ try {
     updateDroneHUD();
   }
 
+  const opticButtons = OPTIC_VIEWS.map((view, index) => ({
+    el: $(`optics-${view.id}`),
+    index,
+  }));
+  let restoreOpticsLock = false;
+
+  function updateOpticsHUD() {
+    const view = OPTIC_VIEWS[opticViewIndex];
+    setText(ui.opticsTitle, view.label);
+    setText(ui.opticsCaption, view.caption);
+    for (const { el, index } of opticButtons) {
+      setAttr(el, "aria-pressed", index === opticViewIndex);
+    }
+  }
+
+  function selectOpticView(index) {
+    if (!usingOptics || fatalError || !playing) return;
+    const count = OPTIC_VIEWS.length;
+    try {
+      opticViewIndex = ((index % count) + count) % count;
+      aimOptics(opticsCamera, opticViewIndex);
+      updateOpticsHUD();
+    } catch (error) {
+      handleFatalError(error);
+    }
+  }
+
+  function exitOptics(resumePlayer = true) {
+    if (!usingOptics) return;
+    usingOptics = false;
+    if (ui.opticsHud.contains(document.activeElement)) {
+      document.activeElement.blur();
+    }
+    setHidden(ui.opticsHud, true);
+    setHidden(ui.opticsReticle, true);
+    setHidden(ui.crosshair, !playing);
+    updateFooter(playerState);
+    setHidden(ui.mission, !playing);
+    setHidden(ui.jobStack, !playing);
+    setHidden(ui.telemetry, !playing);
+    setHidden(ui.compactPhysics, !playing);
+    if (resumePlayer && playing && !fatalError) {
+      player.setEnabled(true);
+      delivery.setActive(true);
+      updateHUD();
+      // If the old lock is still being released, don't mistake it for a
+      // reacquisition. The normal drag controls remain available in that case.
+      if (restoreOpticsLock && document.pointerLockElement !== renderer.domElement) {
+        void player.requestLock();
+      }
+    }
+    restoreOpticsLock = false;
+  }
+
+  function enterOptics() {
+    if (
+      fatalError ||
+      !playing ||
+      usingOptics ||
+      flyingDrone ||
+      mapOpen ||
+      habitatMap.isOpen() ||
+      pendingTransfer ||
+      activeDialogue
+    ) {
+      return;
+    }
+    // Free the cursor for the scope controls without treating the intentional
+    // pointer-lock release as a pause.
+    restoreOpticsLock = document.pointerLockElement === renderer.domElement;
+    everLocked = false;
+    lockRequest++;
+    usingOptics = true;
+    player.setEnabled(false);
+    delivery.setActive(false);
+    if (document.activeElement instanceof HTMLElement) {
+      document.activeElement.blur();
+    }
+    selectOpticView(0);
+    if (fatalError || !usingOptics) return;
+    setText(ui.footerRight, "STILLWATER LENS · 1–3 TARGET · ←/→ CYCLE · R RETURN");
+    setText(ui.area, "STILLWATER LENS · OPTICS");
+    setHidden(ui.mission, true);
+    setHidden(ui.jobStack, true);
+    setHidden(ui.telemetry, true);
+    setHidden(ui.compactPhysics, true);
+    setHidden(ui.interaction, true);
+    setHidden(ui.inventory, true);
+    waypointMarker.hide();
+    setHidden(ui.crosshair, true);
+    setHidden(ui.opticsReticle, false);
+    setHidden(ui.opticsHud, false);
+  }
+
   function pause(options) {
     exitDrone(false);
+    exitOptics(false);
     if (fatalError) {
       mapReturnMode = null;
       mapReturnFocus = null;
@@ -496,7 +604,7 @@ try {
     obstacles: world.obstacles,
     groundHeight: world.groundHeight,
     onLockChange(locked) {
-      if (locked && !playing) {
+      if (locked && (!playing || usingOptics)) {
         document.exitPointerLock();
         return;
       }
@@ -509,6 +617,7 @@ try {
   function visitEndcap() {
     if (fatalError || mapOpen || habitatMap.isOpen()) return;
     exitDrone();
+    exitOptics();
     cancelPendingTransfer();
     closeDialogue();
     player.teleport(ENDCAP_ARRIVAL);
@@ -518,6 +627,7 @@ try {
   function visitCity() {
     if (fatalError || mapOpen || habitatMap.isOpen()) return;
     exitDrone();
+    exitOptics();
     cancelPendingTransfer();
     closeDialogue();
     player.teleport(CITY_ARRIVAL);
@@ -527,6 +637,7 @@ try {
   function visitReservoir() {
     if (fatalError || mapOpen || habitatMap.isOpen()) return;
     exitDrone();
+    exitOptics();
     cancelPendingTransfer();
     closeDialogue();
     player.teleport(RESERVOIR_ARRIVAL);
@@ -982,7 +1093,8 @@ try {
           reaction?.prompt ||
           lift?.prompt ||
           (tramAction?.kind === "inspect" ? tramAction.prompt : null) ||
-          (canLaunchDrone(state) ? "Launch survey drone" : null);
+          (canLaunchDrone(state) ? "Launch survey drone" : null) ||
+          (canUseOptics(state) ? "Look through the telescope" : null);
       }
     }
     const hideInteraction =
@@ -1018,6 +1130,51 @@ try {
   ui.mapBtn.addEventListener("click", toggleMap);
   ui.soundBtn.addEventListener("click", toggleSound);
   ui.droneReturn.addEventListener("click", () => exitDrone());
+  ui.opticsReturn.addEventListener("click", () => exitOptics());
+  for (const entry of opticButtons) {
+    entry.el.addEventListener("click", () => selectOpticView(entry.index));
+  }
+  window.addEventListener("keydown", (event) => {
+    if (!usingOptics) return;
+    const mod = event.ctrlKey || event.metaKey || event.altKey;
+    if (!mod && (event.code === "KeyR" || event.key === "r" || event.key === "R")) {
+      event.preventDefault();
+      event.stopImmediatePropagation();
+      if (!event.repeat) exitOptics();
+      return;
+    }
+    if (
+      !mod &&
+      (event.code === "ArrowLeft" ||
+        event.key === "ArrowLeft" ||
+        event.code === "ArrowRight" ||
+        event.key === "ArrowRight")
+    ) {
+      event.preventDefault();
+      event.stopImmediatePropagation();
+      if (!event.repeat) {
+        selectOpticView(opticViewIndex + (event.code === "ArrowLeft" || event.key === "ArrowLeft" ? -1 : 1));
+      }
+      return;
+    }
+    const digitIndex =
+      event.code === "Digit1" || event.code === "Numpad1" || event.key === "1"
+        ? 0
+        : event.code === "Digit2" || event.code === "Numpad2" || event.key === "2"
+          ? 1
+          : event.code === "Digit3" || event.code === "Numpad3" || event.key === "3"
+            ? 2
+            : -1;
+    if (!mod && digitIndex >= 0) {
+      event.preventDefault();
+      event.stopImmediatePropagation();
+      if (!event.repeat) selectOpticView(digitIndex);
+      return;
+    }
+    if (event.code === "Space" && !event.target?.closest?.("button")) {
+      event.preventDefault();
+    }
+  }, true);
   window.addEventListener("keydown", (event) => {
     if (!flyingDrone) return;
     if (event.code === "KeyR" && !event.repeat) {
@@ -1046,7 +1203,7 @@ try {
     if (flyingDrone && document.pointerLockElement !== renderer.domElement && event.button === 0) {
       droneDrag = { x: event.clientX, y: event.clientY };
     }
-    if (flyingDrone) event.stopImmediatePropagation();
+    if (flyingDrone || usingOptics) event.stopImmediatePropagation();
   }, true);
   window.addEventListener("pointermove", (event) => {
     if (!flyingDrone) return;
@@ -1122,7 +1279,7 @@ try {
       return;
     }
     if (mapOpen || habitatMap.isOpen()) return;
-    if (flyingDrone) return;
+    if (flyingDrone || usingOptics) return;
     if (
       playing && !event.repeat && !event.ctrlKey && !event.metaKey && !event.altKey &&
       (event.code === "KeyH" || event.code === "KeyJ") &&
@@ -1256,6 +1413,8 @@ try {
         updateHUD();
       } else if (!activeDialogue && canLaunchDrone(state)) {
         launchDrone();
+      } else if (!activeDialogue && canUseOptics(state)) {
+        enterOptics();
       }
     } catch (error) {
       handleFatalError(error);
@@ -1267,6 +1426,7 @@ try {
       if (
         !playing ||
         flyingDrone ||
+        usingOptics ||
         mapOpen ||
         document.pointerLockElement !== renderer.domElement
       )
@@ -1305,6 +1465,8 @@ try {
     camera.updateProjectionMatrix();
     droneCamera.aspect = camera.aspect;
     droneCamera.updateProjectionMatrix();
+    opticsCamera.aspect = camera.aspect;
+    opticsCamera.updateProjectionMatrix();
     renderer.setPixelRatio(Math.min(window.devicePixelRatio, 1.75));
     renderer.setSize(window.innerWidth, window.innerHeight);
     fitDialogueHUD();
@@ -1394,7 +1556,7 @@ try {
         updateHUD();
       }
       if (flyingDrone) drone.update(dt);
-      else player.update(pendingTransfer ? 0 : dt);
+      else if (!usingOptics) player.update(pendingTransfer ? 0 : dt);
       player.getState(playerState);
       world.update(dt, elapsed, playerState);
       try {
@@ -1406,7 +1568,8 @@ try {
       hudTime += dt;
       if (hudTime >= 0.1) {
         if (flyingDrone) updateDroneHUD();
-        else updateHUD();
+        else if (!usingOptics) updateHUD();
+        if ((flyingDrone || usingOptics) && elapsed >= toastUntil) setHidden(ui.toast, true);
         updateSoundControl();
         hudTime = 0;
       }
@@ -1414,7 +1577,7 @@ try {
       handleFatalError(error);
       return;
     }
-    if (!fatalError) renderer.render(scene, flyingDrone ? droneCamera : camera);
+    if (!fatalError) renderer.render(scene, flyingDrone ? droneCamera : usingOptics ? opticsCamera : camera);
   }
 
   for (const tram of trams) tram.update(0);

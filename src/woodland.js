@@ -5,6 +5,7 @@ import {
   RESERVOIR_LAYOUT,
   RESERVOIR_THETA,
   RESERVOIR_Y,
+  STILLWATER_LENS,
   reservoirS,
   reservoirY,
 } from "./reservoir-layout.js";
@@ -83,6 +84,7 @@ function clearOfPublicSpace(s, y, margin) {
   if (s < bounds.minS + margin || s > bounds.maxS - margin ||
       y < bounds.minY + margin || y > bounds.maxY - margin) return false;
   if (insideRect(s, y, PLANTING_BED, margin)) return false;
+  if (insideRect(s, y, STILLWATER_LENS.clearing, margin + 1)) return false;
   if (insideRect(s, y, basin, bank.width + margin) ||
       insideRect(s, y, pavilion, margin + 2) ||
       insideRect(s, y, lookout, margin + 2)) return false;

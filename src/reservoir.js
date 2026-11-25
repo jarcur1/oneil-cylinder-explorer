@@ -5,6 +5,7 @@ import { addCivicSolid } from "./civic-primitives.js";
 import { RESERVOIR_LAYOUT, reservoirS, reservoirY } from "./reservoir-layout.js";
 import { createWoodland } from "./woodland.js";
 import { createReservoirPavilion } from "./reservoir-pavilion.js";
+import { createStillwaterLensDeck } from "./stillwater-lens-deck.js";
 import { STILLWATER_TRAM_STOPS } from "./tram-layout.js";
 
 export function createReservoir(parent) {
@@ -119,6 +120,7 @@ export function createReservoir(parent) {
     .name = "meridian_arrival_wayfinding";
 
   obstacles.push(...createWoodland(root).obstacles, ...createReservoirPavilion(root).obstacles);
+  obstacles.push(...createStillwaterLensDeck(root).obstacles);
   const light = new THREE.SpotLight(0xffffff, 117000, 620, 0.69, 0.25);
   light.name = "stillwater_sunline_light";
   light.position.set(0, 450, 30);
