@@ -10,6 +10,10 @@
     <main id="app">
       <div id="viewport" aria-label="Three-dimensional cylinder habitat"></div>
       <div class="vignette" aria-hidden="true"></div>
+      <div id="optics-reticle" class="optics-reticle" aria-hidden="true" hidden>
+        <div class="optics-reticle-ring"></div>
+        <div class="optics-reticle-cross"></div>
+      </div>
       <header class="topbar">
         <div class="brand">
           <span class="brand-mark">◌</span>
@@ -131,6 +135,28 @@
         <span>Hull-relative height: <span id="drone-height">16.0 m</span></span>
         <span>WASD fly · Q down · Space up · Shift faster · Mouse / drag / arrows look</span>
         <button id="drone-return" class="glass-button" type="button">Return to pavilion (R)</button>
+      </aside>
+      <aside id="optics-hud" class="optics-hud" hidden aria-label="Stillwater Lens telescope">
+        <div class="optics-hud-head">
+          <span class="eyebrow optics-eyebrow">STILLWATER LENS · FIXED OPTICS</span>
+          <button id="optics-return" class="glass-button optics-return-btn" type="button">Return to deck (R)</button>
+        </div>
+        <div class="optics-readout" aria-live="polite">
+          <h2 id="optics-title" class="optics-title"></h2>
+          <p id="optics-caption" class="optics-caption"></p>
+        </div>
+        <div class="optics-targets" role="group" aria-label="Telescope target presets">
+          <button id="optics-meridian" class="optics-target-btn" type="button" aria-pressed="true">
+            <kbd>1</kbd><span class="optics-target-label">Meridian</span>
+          </button>
+          <button id="optics-sunline" class="optics-target-btn" type="button" aria-pressed="false">
+            <kbd>2</kbd><span class="optics-target-label">Sunline</span>
+          </button>
+          <button id="optics-basin" class="optics-target-btn" type="button" aria-pressed="false">
+            <kbd>3</kbd><span class="optics-target-label">Basin</span>
+          </button>
+        </div>
+        <p class="optics-help">1–3 or select target · ← / → cycle views · R return to deck</p>
       </aside>
       <div id="compact-physics" class="compact-physics" hidden></div>
       <div id="waypoint" class="waypoint" hidden>

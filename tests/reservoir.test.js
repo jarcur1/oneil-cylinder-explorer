@@ -83,13 +83,14 @@ test("reserve waypoint arrival honors authored range and floor", () => {
     ["stillwater-shore", "Stillwater shoreline"],
     ["stillwater-pavilion", "Water-management pavilion"],
     ["stillwater-lookout", "Meridian-facing lookout"],
+    ["stillwater-lens", "Stillwater Lens"],
   ]);
   const nav = createNavigation();
   for (const target of RESERVOIR_TARGETS) {
     nav.select({ kind: "destination", id: target.id });
     const pose = { theta: target.theta, y: target.y, height: target.height };
-    assert.equal(nav.getWaypoint({ ...pose, y: pose.y + 2.99 }, {}).arrived, true, target.id);
-    assert.equal(nav.getWaypoint({ ...pose, y: pose.y + 3.01 }, {}).arrived, false, target.id);
+    assert.equal(nav.getWaypoint({ ...pose, y: pose.y + target.range - 0.01 }, {}).arrived, true, target.id);
+    assert.equal(nav.getWaypoint({ ...pose, y: pose.y + target.range + 0.01 }, {}).arrived, false, target.id);
     const wrongFloor = target.id === "stillwater-pavilion" ? 6.15 : 0;
     assert.equal(nav.getWaypoint({ ...pose, height: wrongFloor }, {}).arrived, false, target.id);
   }

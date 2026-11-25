@@ -136,7 +136,13 @@ On the west woodland path, continue north past the lookout turn and look west in
 
 The balancing basin holds a **0.4 m shallow water surface above the existing deck**. It is not an excavated lake or a swimming simulation: stepping off the bank lands on the deck beneath the water. The bank and lookout use solid curved geometry and three shallow steps; normal radial gravity still applies. A separate non-shadow-casting sunline feed lights this side without changing the existing cached sun shadow.
 
-On the **G** map, select **Stillwater shoreline**, **Water-management pavilion**, or **Meridian-facing lookout** for local access guidance. These are public, unsaved waypoint targets, not new discoveries or jobs. Return by Line 02 or the existing menu jumps.
+The reserve's public destinations are on the **G** map. These are unsaved waypoint targets, not discoveries or jobs. Return by Line 02 or the existing menu jumps.
+
+### Stillwater Lens
+
+Follow the east woodland trail north from the south shore, then take the signed steps west onto the observation deck. You can track **Stillwater Lens** from the map, including while riding Line 02.
+
+Press **E** at the telescope. Use **←/→**, **1–3**, or the view buttons to frame Meridian's Civic Tower, the Sunline, and Stillwater's basin through the live scene. Press **R** to step back to the same spot. The map and pause controls also close the telescope.
 
 ### Stillwater survey drone
 

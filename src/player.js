@@ -317,7 +317,8 @@ export function createPlayer(camera, domElement, options = {}) {
     if (!enabled) return;
     if (isGameplayKey(e.code, e.key)) {
       e.preventDefault();
-      setKeyState(e.code, e.key, true);
+      // A key held across a mode switch must be pressed again to move or look.
+      if (!e.repeat) setKeyState(e.code, e.key, true);
     }
   }
 

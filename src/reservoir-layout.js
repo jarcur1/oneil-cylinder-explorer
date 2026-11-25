@@ -7,6 +7,19 @@ export const RESERVOIR_Y = 450;
 export const reservoirS = (s) => RESERVOIR_THETA * RADIUS + s;
 export const reservoirY = (y) => RESERVOIR_Y + y;
 
+export const STILLWATER_LENS = Object.freeze({
+  deck: Object.freeze({ s: 85, y: 74, width: 16, depth: 14, top: 1.2 }),
+  clearing: Object.freeze({ s: 86, y: 74, width: 31, depth: 24 }),
+  instrument: Object.freeze({ s: 80, y: 74, height: 3.15 }),
+  eyepoint: Object.freeze({ s: 77, y: 74, height: 3.8 }),
+  station: Object.freeze({
+    theta: reservoirS(82) / RADIUS,
+    y: reservoirY(74),
+    height: 1.2,
+    range: 2.2,
+  }),
+});
+
 // Authored coordinates are arc metres around the opposite wall, not world X.
 export const RESERVOIR_LAYOUT = Object.freeze({
   bounds: Object.freeze({ minS: -155, maxS: 155, minY: -140, maxY: 140 }),
@@ -65,5 +78,10 @@ export const RESERVOIR_TARGETS = Object.freeze([
     id: "stillwater-lookout", name: "Meridian-facing lookout", kind: "public", layer: "surface",
     theta: reservoirS(-100) / RADIUS, y: reservoirY(-88), height: 0.6, range: 3,
     hint: "Follow the west woodland path to the stepped lookout. Read the guide, then face north and look high to the left for the Civic Tower's brass crown and the ring in Meridian Plaza.",
+  }),
+  Object.freeze({
+    id: "stillwater-lens", name: "Stillwater Lens", kind: "public", layer: "surface",
+    ...STILLWATER_LENS.station,
+    hint: "From the south shore path, turn north onto the east woodland trail. Take the signed steps west onto the observation deck and press E at the telescope.",
   }),
 ]);

@@ -134,7 +134,7 @@ export const STILLWATER_TRAM_STOPS = Object.freeze([
     "Stillwater Reserve",
     RESERVOIR_THETA * RADIUS - 12,
     "Line 02 pad beside the Stillwater entrance path.",
-    ["stillwater-shore", "stillwater-pavilion", "stillwater-lookout"],
+    ["stillwater-shore", "stillwater-pavilion", "stillwater-lookout", "stillwater-lens"],
   ),
 ]);
 
